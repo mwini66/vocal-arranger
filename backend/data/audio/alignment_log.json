@@ -1,0 +1,10 @@
+[
+    {
+        "timestamp": "20250809_133711",
+        "offset_samples": -412672,
+        "offset_seconds": -9.3576,
+        "tempo_vocal": 126.05,
+        "tempo_instrumental": 126.05,
+        "output_file": "data/audio/vocal_aligned_20250809_133711.wav"
+    }
+]

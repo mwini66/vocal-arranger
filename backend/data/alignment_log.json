@@ -1,0 +1,58 @@
+[
+    {
+        "timestamp": "20250809_140319",
+        "offset_samples": -412672,
+        "offset_seconds": -9.357641723356009,
+        "tempo_vocal": 126.04801829268293,
+        "tempo_instrumental": 126.04801829268293,
+        "output_file": "data/audio/vocal_aligned_20250809_140319.wav"
+    },
+    {
+        "timestamp": "20250809_141302",
+        "offset_samples": -412672,
+        "offset_seconds": -9.357641723356009,
+        "tempo_vocal": 126.04801829268293,
+        "tempo_instrumental": 126.04801829268293,
+        "output_file": "data/audio/vocal_aligned_20250809_141302.wav"
+    },
+    {
+        "timestamp": "20250809_142002",
+        "offset_samples": -412672,
+        "offset_seconds": -9.357641723356009,
+        "tempo_vocal": 126.04801829268293,
+        "tempo_instrumental": 126.04801829268293,
+        "output_file": "data/audio/vocal_aligned_20250809_142002.wav"
+    },
+    {
+        "timestamp": "20250809_142557",
+        "offset_samples": -412672,
+        "offset_seconds": -9.357641723356009,
+        "tempo_vocal": 126.04801829268293,
+        "tempo_instrumental": 126.04801829268293,
+        "output_file": "data/audio/vocal_aligned_20250809_142557.wav"
+    },
+    {
+        "timestamp": "20250809_143134",
+        "offset_samples": -412672,
+        "offset_seconds": -9.357641723356009,
+        "tempo_vocal": 126.04801829268293,
+        "tempo_instrumental": 126.04801829268293,
+        "output_file": "data/audio/vocal_aligned_20250809_143134.wav"
+    },
+    {
+        "timestamp": "20250809_143426",
+        "offset_samples": -412672,
+        "offset_seconds": -9.357641723356009,
+        "tempo_vocal": 126.04801829268293,
+        "tempo_instrumental": 126.04801829268293,
+        "output_file": "data/audio/vocal_aligned_20250809_143426.wav"
+    },
+    {
+        "timestamp": "20250809_143819",
+        "offset_samples": -412672,
+        "offset_seconds": -9.357641723356009,
+        "tempo_vocal": 126.04801829268293,
+        "tempo_instrumental": 126.04801829268293,
+        "output_file": "data/audio/vocal_aligned_20250809_143819.wav"
+    }
+]

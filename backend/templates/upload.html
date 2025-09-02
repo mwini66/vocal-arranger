@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Upload Audio</title>
+</head>
+<body>
+  <h1>Upload Audio File</h1>
+  <form method="POST" action="/upload" enctype="multipart/form-data">
+    <label>Instrumental:</label>
+    <input type="file" name="instrumental" required><br><br>
+
+    <label>Vocals:</label>
+    <input type="file" name="vocals" required><br><br>
+
+    <button type="submit">Upload</button>
+  </form>
+
+  {% if result %}
+    <h2>Result:</h2>
+    <pre>{{ result }}</pre>
+  {% endif %}
+</body>
+</html>
