@@ -19,7 +19,8 @@ export default function Home() {
     formData.append("reference", referenceFile);
 
     try {
-      const response = await fetch("http://127.0.0.1:5000/align", {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "/api";
+      const response = await fetch(`${apiUrl}/align`, {
         method: "POST",
         body: formData,
       });
