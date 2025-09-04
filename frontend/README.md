@@ -41,10 +41,9 @@ npm install
 ```
 
 ### 4. Environment Variables
-Create a `.env.local` file in the `frontend/` directory for secrets and configuration. Example:
+Copy `.env.example` to `.env.local` and fill in your configuration:
 ```
-NEXT_PUBLIC_API_URL=http://localhost:5000
-# Add other config as needed
+cp .env.example .env.local
 ```
 
 ## Running the App

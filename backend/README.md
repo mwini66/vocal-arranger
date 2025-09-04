@@ -39,11 +39,9 @@ pip install black flake8 pytest python-dotenv
 ```
 
 ### 4. Environment Variables
-Create a `.env` file in the `backend/` directory for secrets and configuration. Example:
+Copy `.env.example` to `.env` and fill in your secrets and configuration:
 ```
-FLASK_ENV=development
-SECRET_KEY=your-secret-key
-# Add other config as needed
+cp .env.example .env
 ```
 
 ## Running the App
