@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import WaveSurferPlayer from "../components/ui/WaveSurferPlayer";
+import AudioPlayer from "../components/ui/AudioPlayer";
 
 export default function Home() {
   const [vocalsFile, setVocalsFile] = useState<File | null>(null);
@@ -139,8 +139,8 @@ export default function Home() {
           </div>
           {vocalsFile && (
             <div className="mt-4">
-              <WaveSurferPlayer audioUrl={recordedUrl || URL.createObjectURL(vocalsFile)} />
-              <p className="text-xs text-gray-400 mt-2">Vocals waveform</p>
+              <AudioPlayer audioUrl={recordedUrl || URL.createObjectURL(vocalsFile)} />
+              <p className="text-xs text-gray-400 mt-2">Vocals playback</p>
             </div>
           )}
         </div>
@@ -171,8 +171,8 @@ export default function Home() {
           </div>
           {referenceFile && (
             <div className="mt-4">
-              <WaveSurferPlayer audioUrl={URL.createObjectURL(referenceFile)} />
-              <p className="text-xs text-gray-400 mt-2">Reference waveform</p>
+              <AudioPlayer audioUrl={URL.createObjectURL(referenceFile)} />
+              <p className="text-xs text-gray-400 mt-2">Reference playback</p>
             </div>
           )}
         </div>
@@ -202,6 +202,20 @@ export default function Home() {
           <p className="mt-4 text-red-400 font-semibold">{error}</p>
         )}
 
+        {result && !error && result.arranged_audio_url && (
+          <div className="mb-4">
+            <h3 className="text-teal-300 font-bold mb-2">Rearranged Output</h3>
+            <AudioPlayer audioUrl={result.arranged_audio_url} />
+            <p className="text-xs text-gray-400 mt-2">Rearranged playback</p>
+          </div>
+        )}
+        {result && (!result.arranged_audio_url || error) && (
+          <div className="mb-4">
+            <h3 className="text-teal-300 font-bold mb-2">Rearranged Output</h3>
+            <div className="text-red-400 text-xs">No rearranged output available. {error ? error : "Try different input files."}</div>
+          </div>
+        )}
+
         {result && (
           <>
             {/* Alignment Results: Always visible, grouped */}
@@ -209,27 +223,17 @@ export default function Home() {
               <h2 className="text-lg font-semibold text-teal-400 mb-4">Alignment Results</h2>
               <div className="mb-4">
                 <h3 className="text-teal-300 font-bold mb-2">Original Vocals</h3>
-                <WaveSurferPlayer
+                <AudioPlayer
                   audioUrl={recordedUrl || (vocalsFile ? URL.createObjectURL(vocalsFile) : "")}
-                  regions={result.vocals_segments?.map((seg: any) => ({
-                    start: seg.start,
-                    end: seg.end,
-                    word: seg.word || seg.text
-                  })) || []}
                 />
-                <p className="text-xs text-gray-400 mt-2">Original waveform</p>
+                <p className="text-xs text-gray-400 mt-2">Original playback</p>
               </div>
               <div className="mb-4">
                 <h3 className="text-teal-300 font-bold mb-2">Rearranged Output</h3>
-                <WaveSurferPlayer
+                <AudioPlayer
                   audioUrl={result.arranged_audio_url}
-                  regions={result.timeline?.map((item: any) => ({
-                    start: item.start,
-                    end: item.end,
-                    word: item.word
-                  })) || []}
                 />
-                <p className="text-xs text-gray-400 mt-2">Rearranged waveform</p>
+                <p className="text-xs text-gray-400 mt-2">Rearranged playback</p>
               </div>
             </div>
             {/* Timeline: Timestamps only, toggle visibility */}

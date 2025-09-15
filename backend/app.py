@@ -43,6 +43,7 @@ def align():
     live_audio = AudioSegment.from_file(vocals_path)
     arranged = AudioSegment.empty()
     timeline = []
+    match_count = 0
     for ref_word in reference_segments:
         match = next(
             (
@@ -53,11 +54,15 @@ def align():
             None
         )
         if match:
+            match_count += 1
             start_ms = int(match["start"] * 1000)
             end_ms = int(match["end"] * 1000)
             segment = live_audio[start_ms:end_ms]
             arranged += segment
             timeline.append({"word": ref_word.get("word") or ref_word.get("text", ""), "start": ref_word["start"], "end": ref_word["end"]})
+    if match_count == 0:
+        print(f"[ERROR] No matching segments found between vocals and reference.")
+        return jsonify({"error": "No matching segments found between vocals and reference. Please check your input files."}), 400
     arranged_path = vocals_path.replace(".wav", "_arranged.wav")
     print(f"[DEBUG] Attempting to export arranged audio to: {arranged_path}")
     try:

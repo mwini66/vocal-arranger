@@ -2,12 +2,20 @@
 
 import { useEffect, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
+import RegionsPlugin from "wavesurfer.js/dist/plugins/regions";
+
+interface Region {
+  start: number;
+  end: number;
+  word?: string;
+}
 
 interface WaveSurferPlayerProps {
   audioUrl: string;
+  regions?: Region[];
 }
 
-export default function WaveSurferPlayer({ audioUrl }: WaveSurferPlayerProps) {
+export default function WaveSurferPlayer({ audioUrl, regions = [] }: WaveSurferPlayerProps) {
   const waveformRef = useRef<HTMLDivElement>(null);
   const waveSurferInstance = useRef<WaveSurfer | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -27,13 +35,27 @@ export default function WaveSurferPlayer({ audioUrl }: WaveSurferPlayerProps) {
       container: waveformRef.current,
       waveColor: "#a0a0a0",
       progressColor: "#3b82f6",
-      height: 100
+      height: 100,
+      plugins: [
+        RegionsPlugin.create({})
+      ]
     });
 
     waveSurferInstance.current.load(audioUrl);
 
     waveSurferInstance.current.on("ready", () => {
       setIsReady(true);
+      // Add regions if provided
+      if (regions && regions.length > 0) {
+        regions.forEach(region => {
+          waveSurferInstance.current?.addRegion({
+            start: region.start,
+            end: region.end,
+            color: "rgba(59, 130, 246, 0.2)",
+            data: { word: region.word }
+          });
+        });
+      }
     });
 
     waveSurferInstance.current.on("error", () => {
@@ -47,7 +69,7 @@ export default function WaveSurferPlayer({ audioUrl }: WaveSurferPlayerProps) {
     return () => {
       waveSurferInstance.current?.destroy();
     };
-  }, [audioUrl]);
+  }, [audioUrl, regions]);
 
   const handlePlayPause = () => {
     if (!isReady || !waveSurferInstance.current) return;
