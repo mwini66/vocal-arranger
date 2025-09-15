@@ -13,6 +13,7 @@ export default function Home() {
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
   const [showResult, setShowResult] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const audioChunks = useRef<Blob[]>([]);
   const vocalsInputRef = useRef<HTMLInputElement>(null);
   const referenceInputRef = useRef<HTMLInputElement>(null);
@@ -72,11 +73,10 @@ export default function Home() {
       setError("Please upload both vocals and reference files.");
       return;
     }
-
+    setIsLoading(true);
     const formData = new FormData();
     formData.append("vocals", vocalsFile);
     formData.append("reference", referenceFile);
-
     try {
       // Use explicit localhost:5000 if env not set
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
@@ -84,9 +84,8 @@ export default function Home() {
         method: "POST",
         body: formData,
       });
-
       const data = await response.json();
-
+      setIsLoading(false);
       if (!response.ok) {
         setError(data.error || "Upload failed");
         setResult(null);
@@ -95,6 +94,7 @@ export default function Home() {
         setError(null);
       }
     } catch (err) {
+      setIsLoading(false);
       setError("Failed to connect to backend. Is the server running at " + (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000") + "?");
       setResult(null);
     }
@@ -179,10 +179,24 @@ export default function Home() {
 
         <button
           onClick={handleUpload}
-          className="w-full bg-teal-500 hover:bg-teal-600 text-white font-bold py-2 px-4 rounded-lg"
+          className={`w-full font-bold py-2 px-4 rounded-lg ${isLoading ? "bg-gray-500" : "bg-teal-500 hover:bg-teal-600 text-white"}`}
+          disabled={isLoading}
         >
-          Arrange
+          {isLoading ? (
+            <span className="flex items-center justify-center">
+              <svg className="animate-spin h-5 w-5 mr-2 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+              Processing...
+            </span>
+          ) : (
+            "Arrange"
+          )}
         </button>
+        {isLoading && (
+          <div className="mt-4 flex items-center justify-center">
+            <svg className="animate-spin h-6 w-6 mr-2 text-teal-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+            <span className="text-teal-400 font-semibold">Arranging and aligning... Please wait.</span>
+          </div>
+        )}
 
         {error && (
           <p className="mt-4 text-red-400 font-semibold">{error}</p>
@@ -233,7 +247,23 @@ export default function Home() {
               </div>
               {showResult && (
                 <>
-                  <h3 className="text-teal-300 font-bold mb-2">Timeline</h3>
+                  <h3 className="text-teal-300 font-bold mb-2">Original Vocals Timeline</h3>
+                  <ul className="text-xs text-gray-200 mb-4">
+                    {result.vocals_segments?.map((item: any, idx: number) => (
+                      <li key={idx}>
+                        <span className="text-teal-400">{item.word || item.text}</span>: {item.start.toFixed(2)}s - {item.end.toFixed(2)}s
+                      </li>
+                    ))}
+                  </ul>
+                  <h3 className="text-teal-300 font-bold mb-2">Reference Audio Timeline</h3>
+                  <ul className="text-xs text-gray-200 mb-4">
+                    {result.reference_segments?.map((item: any, idx: number) => (
+                      <li key={idx}>
+                        <span className="text-teal-400">{item.word || item.text}</span>: {item.start.toFixed(2)}s - {item.end.toFixed(2)}s
+                      </li>
+                    ))}
+                  </ul>
+                  <h3 className="text-teal-300 font-bold mb-2">Rearranged Output Timeline</h3>
                   <ul className="text-xs text-gray-200">
                     {result.timeline.map((item: any, idx: number) => (
                       <li key={idx}>

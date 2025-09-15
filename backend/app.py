@@ -59,8 +59,10 @@ def align():
             arranged += segment
             timeline.append({"word": ref_word.get("word") or ref_word.get("text", ""), "start": ref_word["start"], "end": ref_word["end"]})
     arranged_path = vocals_path.replace(".wav", "_arranged.wav")
+    print(f"[DEBUG] Attempting to export arranged audio to: {arranged_path}")
     try:
         arranged.export(arranged_path, format="wav")
+        print(f"[DEBUG] Exported arranged audio to: {arranged_path}")
         if not os.path.exists(arranged_path) or os.path.getsize(arranged_path) == 0:
             print(f"[ERROR] Arranged audio file not created or is empty: {arranged_path}")
             return jsonify({"error": "Failed to create arranged audio file."}), 500
