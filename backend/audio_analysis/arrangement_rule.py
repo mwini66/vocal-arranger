@@ -78,3 +78,4 @@ def arrange_rule(segments: List[Dict]) -> Tuple[List[int], float]:
     score = float(0.3 * structure_score + 0.2 * contrast_score + 0.2 * pacing_score + 0.3 * keyword_score)
     ordered_indices = [int(i) for i in ordered_indices]
     return ordered_indices, score
+
