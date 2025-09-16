@@ -1,8 +1,29 @@
 import argparse
-import os
 import json
+import os
+import ssl
+
 import librosa
 import numpy as np
+
+try:
+    _create_unverified_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass
+else:
+    ssl._create_default_https_context = _create_unverified_https_context
+
+import nltk
+
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt', quiet=True)
+try:
+    nltk.data.find('tokenizers/punkt_tab')
+except LookupError:
+    nltk.download('punkt_tab', quiet=True)
+
 
 def extract_features(audio_path, output_path):
     """
@@ -46,6 +67,53 @@ def extract_features(audio_path, output_path):
         json.dump(result, f, indent=4)
 
     return result
+
+
+def extract_segment_features(audio_path, segments):
+    """
+    For each segment, extract energy, pitch, duration, pause, keywords.
+    Args:
+        audio_path: path to audio file
+        segments: list of dicts with 'start', 'end', 'text'
+    Returns:
+        List of dicts with features per segment
+    """
+    y, sr = librosa.load(audio_path)
+    segment_features = []
+    prev_end = 0.0
+    for seg in segments:
+        start = seg.get('start', 0)
+        end = seg.get('end', 0)
+        text = seg.get('text', seg.get('word', ''))
+        # Audio slice
+        start_sample = int(start * sr)
+        end_sample = int(end * sr)
+        y_seg = y[start_sample:end_sample] if end_sample > start_sample else np.array([])
+        # Energy
+        energy = float(np.mean(librosa.feature.rms(y=y_seg))) if y_seg.size > 0 else 0.0
+        # Pitch
+        pitches, magnitudes = librosa.piptrack(y=y_seg, sr=sr) if y_seg.size > 0 else (np.array([]), np.array([]))
+        pitch_values = pitches[magnitudes > np.median(magnitudes)] if magnitudes.size > 0 else np.array([])
+        avg_pitch = float(np.mean(pitch_values)) if pitch_values.size > 0 else 0.0
+        # Duration
+        duration = end - start
+        # Pause
+        pause = start - prev_end if start > prev_end else 0.0
+        prev_end = end
+        # Keywords (simple split)
+        keywords = nltk.word_tokenize(text.lower()) if text else []
+        segment_features.append({
+            "start": start,
+            "end": end,
+            "text": text,
+            "energy": energy,
+            "pitch": avg_pitch,
+            "duration": duration,
+            "pause": pause,
+            "keywords": keywords
+        })
+    return segment_features
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Extract audio features.")

@@ -1,15 +1,25 @@
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
-from audio_analysis.extract_features import extract_features
+from audio_analysis.extract_features import extract_features, extract_segment_features
 from audio_analysis.whisperx_utils import transcribe_with_whisperx
 from pydub import AudioSegment
+from audio_analysis.arrangement_rule import arrange_rule
+from audio_analysis.arrangement_ml import arrange_ml
+import json
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
 
 UPLOAD_FOLDER = "audio_analysis/audio_input"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+FEEDBACK_FILE = os.path.join("data", "arrangement_feedback.json")
+os.makedirs(os.path.dirname(FEEDBACK_FILE), exist_ok=True)
+if not os.path.exists(FEEDBACK_FILE):
+    with open(FEEDBACK_FILE, "w") as f:
+        json.dump([], f)
 
 @app.route('/audio/<filename>')
 def serve_audio(filename):
@@ -154,6 +164,88 @@ def rearrange():
         "arranged_audio_url": arranged_path,
         "timeline": timeline
     }), 200
+
+@app.route("/arrange", methods=["POST"])
+def arrange():
+    """
+    Arrange segments using rule-based or ML-based logic.
+    Expects JSON payload:
+    {
+        "segments": [ {"start":..., "end":..., "text":..., "energy":..., "pitch":..., "duration":..., "pause":..., "keywords":...}, ... ],
+        "mode": "rule" or "ml"
+    }
+    Returns:
+        {
+            "arrangement": [ordered indices],
+            "score": float,
+            "mode": str
+        }
+    """
+    data = request.get_json()
+    if not data or "segments" not in data or "mode" not in data:
+        return jsonify({"error": "Missing segments or mode in request"}), 400
+    segments = data["segments"]
+    mode = data["mode"]
+    if mode == "rule":
+        ordered_indices, score = arrange_rule(segments)
+    elif mode == "ml":
+        ordered_indices, score = arrange_ml(segments)
+    else:
+        return jsonify({"error": "Invalid mode. Use 'rule' or 'ml'"}), 400
+    return jsonify({
+        "arrangement": ordered_indices,
+        "score": score,
+        "mode": mode
+    }), 200
+
+@app.route("/arrangement/feedback", methods=["POST"])
+def arrangement_feedback():
+    """
+    Accepts user feedback for an arrangement.
+    Expects JSON payload:
+    {
+        "audio_id": str,
+        "arrangement_type": "rule" or "ml",
+        "ordered_indices": [...],
+        "score": float,
+        "user_rating": int (e.g. 1-5),
+        "timestamp": str (optional)
+    }
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Missing feedback data"}), 400
+    data["timestamp"] = data.get("timestamp") or datetime.utcnow().isoformat()
+    # Append feedback to file
+    try:
+        with open(FEEDBACK_FILE, "r+") as f:
+            feedback_list = json.load(f)
+            feedback_list.append(data)
+            f.seek(0)
+            json.dump(feedback_list, f, indent=2)
+            f.truncate()
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/segment", methods=["POST"])
+def segment():
+    """
+    Segment vocals using WhisperX and extract features for each segment.
+    Accepts a vocals file upload (multipart/form-data).
+    Returns: { "segments": [ {start, end, text, energy, pitch, duration, pause, keywords}, ... ] }
+    """
+    if "vocals" not in request.files:
+        return jsonify({"error": "Vocals file is required."}), 400
+    vocals = request.files["vocals"]
+    vocals_path = os.path.join(UPLOAD_FOLDER, vocals.filename)
+    vocals.save(vocals_path)
+    try:
+        segments = transcribe_with_whisperx(vocals_path)
+        segment_features = extract_segment_features(vocals_path, segments)
+        return jsonify({"segments": segment_features}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True)

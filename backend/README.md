@@ -1,46 +1,26 @@
 # Vocal Arranger Backend
 
 ## Overview
-This is the backend for the Vocal Arranger project. It provides audio alignment, feature extraction, and arrangement services via a Flask API and modular Python scripts.
+This backend provides API endpoints and scripts for speech segmentation of vocal tracks using Whisper. It detects and splits vocal phrases, enabling users to re-arrange segments for creative composition.
 
 ## Tech Stack
 - Python 3.11+
-- Flask (web framework)
-- librosa (audio analysis)
-- madmom (beat tracking)
-- essentia (advanced audio analysis)
-- whisper (speech recognition)
-- aubio (real-time audio labeling)
-- tensorflow/scikit-learn (ML models)
-- pydub/soundfile (audio manipulation)
-- scipy/numpy (signal processing)
-
-## Development Tools
-- pytest (testing)
-- flake8 (linting)
-- black (formatting)
-- python-dotenv (environment variables)
+- Flask (API)
+- whisper (speech segmentation)
+- pytest, flake8, black, python-dotenv
 
 ## Folder Structure
-- `backend/` — Main backend code and core processing modules
-- `backend/audio_analysis/` — AI/ML audio feature extraction and alignment algorithms
-  - `align.py` — DTW and beat alignment algorithms
-  - `extract_features.py` — Energy, pitch, and structural analysis
-  - `utils.py` — Audio processing utilities
-  - `view_log.py` — Analysis logging and metrics
-- `backend/segmenter.py` — AI-driven vocal segmentation with ML models
-- `backend/aligner.py` — Dynamic time warping and vocal-beat alignment
-- `backend/grouping.py` — Take management and arrangement ranking system
-- `backend/gentle_client.py` — Forced alignment integration
-- `backend/data/` — Training data, processed audio, logs, and ML model outputs
-- `backend/uploads/` — User uploaded and processed audio files
+- `backend/` — Flask app and segmentation modules
+- `backend/audio_analysis/` — Whisper-based segmentation scripts
+- `backend/segmenter.py` — Main entry for speech segmentation
+- `backend/data/` — Processed audio and segment logs
+- `backend/uploads/` — User uploaded audio files
 
 ## Setup with Conda-Forge
 
 ### 1. Install Conda/Miniconda
 If you don't have conda installed:
 ```bash
-# Download and install Miniconda
 curl -O https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-x86_64.sh
 bash Miniconda3-latest-MacOSX-x86_64.sh
 ```
@@ -51,38 +31,15 @@ git clone <repo-url>
 cd vocal-arranger/backend
 ```
 
-### 3. Create Conda Environment with Audio Libraries
+### 3. Create Conda Environment
 ```bash
-# Create environment with Python 3.11 and core audio libraries
-conda create -n autocomposer python=3.11 -c conda-forge
-
-# Activate environment
-conda activate autocomposer
-
-# Install audio processing libraries from conda-forge (precompiled binaries)
-conda install -c conda-forge librosa madmom aubio essentia-tensorflow
-
-# Install additional audio and ML libraries
-conda install -c conda-forge scipy numpy soundfile pydub tensorflow scikit-learn
-
-# Install web framework and development tools
-conda install -c conda-forge flask flask-cors
-
-# Install development tools
-pip install black flake8 pytest python-dotenv
-
-# Install whisper for speech recognition
-pip install openai-whisper
+conda create -n vocalarranger python=3.11 -c conda-forge
+conda activate vocalarranger
+conda install flask
+pip install openai-whisper black flake8 pytest python-dotenv
 ```
 
-### 4. Alternative: Use Environment File
-Create from environment.yml:
-```bash
-conda env create -f environment.yml
-conda activate autocomposer
-```
-
-### 5. Environment Variables
+### 4. Environment Variables
 Copy `.env.example` to `.env` and configure:
 ```bash
 cp .env.example .env
@@ -90,98 +47,49 @@ cp .env.example .env
 
 ## Running the App
 ```bash
-# Activate conda environment
-conda activate autocomposer
-
-# Run the Flask application
+conda activate vocalarranger
 python app.py
 ```
 
-## Development Commands
+## Main Features
+- Segment vocals into phrases using Whisper
+- Export segment timings and text
+- API for uploading audio and retrieving segments
+- Tools for re-arranging segmented phrases
 
-### Core Commands
-```bash
-# Activate environment (run this first)
-conda activate autocomposer
+## Out of Scope
+- No beat/instrumental alignment
+- No genre-specific arrangement
+- No full AI arrangement engine
 
-# Run the application
-python app.py
+## Requirements
 
-# Run tests
-pytest
+### ffmpeg (Required for audio processing)
+- **macOS:**
+  ```bash
+  brew install ffmpeg
+  ```
+- **Ubuntu/Debian:**
+  ```bash
+  sudo apt-get update
+  sudo apt-get install ffmpeg
+  ```
+- **Windows:**
+  Download from https://ffmpeg.org/download.html and add the `bin` directory to your system PATH.
 
-# Lint code
-flake8 backend/
-
-# Format code
-black backend/
-
-# Validate AI models
-python audio_analysis/extract_features.py --test
-```
-
-### Conda Environment Management
-```bash
-# List environments
-conda env list
-
-# Export current environment
-conda env export > environment.yml
-
-# Update environment from file
-conda env update -f environment.yml
-
-# Remove environment
-conda env remove -n autocomposer
-```
-
-## AI/ML Components
-
-### Audio Processing Pipeline
-1. **Vocal Segmentation** (`segmenter.py`) - ML models + energy thresholds
-2. **Beat Detection** (`audio_analysis/extract_features.py`) - madmom/essentia
-3. **Alignment** (`aligner.py`) - Dynamic Time Warping with AI enhancement
-4. **Quality Assessment** - Custom metrics for timing and musical coherence
-
-### Success Metrics
-- Alignment precision: <25ms timing deviation
-- Segmentation accuracy: >95% correct phrase identification
-- Processing speed: <2x real-time for complete arrangement
+### NLTK punkt tokenizer (Required for keyword extraction)
+- The backend will automatically download the punkt tokenizer if missing. If you see errors, ensure your server has internet access or manually run:
+  ```python
+  import nltk
+  nltk.download('punkt')
+  ```
 
 ## Troubleshooting
-
-### Conda-Forge Specific Issues
-- **Library conflicts**: Use `conda list` to check installed versions
-- **Missing dependencies**: Try `conda install -c conda-forge <package>`
-- **Environment activation**: Ensure `conda activate autocomposer` before running commands
-
-### Audio Library Issues
-- **librosa installation**: conda-forge version includes all dependencies
-- **madmom compatibility**: Use conda-forge version for best compatibility
-- **essentia-tensorflow**: Includes both essentia and tensorflow integration
-
-### General Issues
 - Ensure conda environment is activated before running any commands
-- If you add new dependencies, update `environment.yml`
+- If you add new dependencies, update your environment
 - For environment variable issues, check your `.env` file
-- Use `conda clean --all` to free up disk space
-
-## Development Workflow
-
-### Phase 1a: Intelligent Audio Analysis (Current)
-**Priority Files:**
-- `audio_analysis/extract_features.py` - Energy detection and structural analysis
-- `segmenter.py` - AI-driven vocal segmentation
-
-**Tasks:**
-- Instrumental energy detection and segmentation
-- Vocal phrase segmentation using ML models
-- AI training pipeline for genre-specific patterns
-
-### Phase 1b: Intelligent Arrangement Engine (Next)
-**Priority Files:**
-- `aligner.py` - DTW alignment and vocal-beat matching
-- `grouping.py` - Take management and ranking system
+- If you see `[Errno 2] No such file or directory: 'ffmpeg'`, install ffmpeg as above and restart your backend.
+- If you see NLTK errors about missing 'punkt', ensure the punkt tokenizer is downloaded as above.
 
 ---
 For more details, see the main project README.
