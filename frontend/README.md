@@ -1,7 +1,7 @@
 # Vocal Arranger Frontend
 
 ## Overview
-This is the frontend for the Vocal Arranger project. It provides a modern web UI for uploading, aligning, and arranging vocal and instrumental tracks.
+This is the frontend for the Vocal Arranger project. It provides a modern web UI for uploading vocal tracks, visualizing Whisper-based speech segments, and re-arranging segments into new compositions.
 
 ## Tech Stack
 - Next.js (React)
@@ -15,9 +15,9 @@ This is the frontend for the Vocal Arranger project. It provides a modern web UI
 - npm
 
 ## Folder Structure
-- `src/components/ui/` — Reusable UI components
-- `src/app/` — App entry, layout, and pages
-- `src/lib/` — Utility functions and Zustand stores
+- `src/components/ui/` — Segment visualization and arrangement controls
+- `src/app/` — Upload and arrangement pages
+- `src/lib/` — Zustand store for segment state
 - `public/` — Static assets
 
 ## Setup
@@ -51,27 +51,16 @@ cp .env.example .env.local
 npm run dev
 ```
 
-## Development Commands
-- **Build:**
-  ```
-  npm run build
-  ```
-- **Run tests (Jest):**
-  ```
-  npm run test
-  ```
-- **Lint code (ESLint):**
-  ```
-  npm run lint
-  ```
-- **Format code (Prettier):**
-  ```
-  npx prettier --write .
-  ```
+## Main Features
+- Upload vocal tracks
+- Display segmented phrases (timings + text)
+- Drag-and-drop re-arrangement of segments
+- Export arranged composition
 
-## State Management
-- Use [Zustand](https://github.com/pmndrs/zustand) for global/shared state.
-- Place stores in `src/lib/store.ts` or similar.
+## Out of Scope
+- No instrumental/beat alignment
+- No genre-specific arrangement
+- No full AI arrangement engine
 
 ## Troubleshooting
 - Ensure you are using Node.js 24.4.1.

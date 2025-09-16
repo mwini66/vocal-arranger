@@ -2,10 +2,11 @@
 
 import { useState, useRef } from "react";
 import AudioPlayer from "../components/ui/AudioPlayer";
+import { ArrangementComparison } from "../components/ui/ArrangementComparison";
+import { SegmentFeature } from "../components/ui/ArrangementComparison";
 
 export default function Home() {
   const [vocalsFile, setVocalsFile] = useState<File | null>(null);
-  const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState<boolean>(false);
@@ -16,7 +17,6 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const audioChunks = useRef<Blob[]>([]);
   const vocalsInputRef = useRef<HTMLInputElement>(null);
-  const referenceInputRef = useRef<HTMLInputElement>(null);
 
   // Start recording
   const startRecording = async () => {
@@ -59,40 +59,40 @@ export default function Home() {
     }
   };
 
-  // Remove reference file
-  const removeReferenceFile = () => {
-    setReferenceFile(null);
-    setResult(null);
-    if (referenceInputRef.current) {
-      referenceInputRef.current.value = "";
-    }
-  };
-
+  // Upload and process vocals only
   const handleUpload = async () => {
-    if (!vocalsFile || !referenceFile) {
-      setError("Please upload both vocals and reference files.");
+    if (!vocalsFile) {
+      setError("Please upload or record a vocals file.");
       return;
     }
     setIsLoading(true);
     const formData = new FormData();
     formData.append("vocals", vocalsFile);
-    formData.append("reference", referenceFile);
     try {
-      // Use explicit localhost:5000 if env not set
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
-      const response = await fetch(`${apiUrl}/align`, {
+      // Step 1: Upload vocals and get segments (Whisper)
+      const response = await fetch(`${apiUrl}/segment`, {
         method: "POST",
         body: formData,
       });
       const data = await response.json();
-      setIsLoading(false);
       if (!response.ok) {
-        setError(data.error || "Upload failed");
+        setIsLoading(false);
+        setError(data.error || "Segmentation failed");
         setResult(null);
-      } else {
-        setResult(data);
-        setError(null);
+        return;
       }
+      // Step 2: Extract segment features and arrange
+      const segments: SegmentFeature[] = data.segments;
+      const arrangementRes = await fetch(`${apiUrl}/arrange`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ segments, mode: "rule" }),
+      });
+      const arrangementData = await arrangementRes.json();
+      setIsLoading(false);
+      setResult({ segments, arrangement: arrangementData });
+      setError(null);
     } catch (err) {
       setIsLoading(false);
       setError("Failed to connect to backend. Is the server running at " + (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000") + "?");
@@ -103,9 +103,8 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-8">
       <h1 className="text-3xl font-bold mb-6 text-teal-400">
-        Intelligent Vocal Alignment
+        Intelligent Vocal Arrangement
       </h1>
-
       <div className="bg-gray-800 p-6 rounded-2xl shadow-lg w-full max-w-lg">
         <div className="mb-4">
           <label className="block mb-2 text-sm font-medium text-teal-300">
@@ -144,141 +143,21 @@ export default function Home() {
             </div>
           )}
         </div>
-
         <div className="mb-4">
-          <label className="block mb-2 text-sm font-medium text-teal-300">
-            Upload Reference
-          </label>
-          <input
-            ref={referenceInputRef}
-            type="file"
-            accept="audio/*"
-            onChange={(e) => setReferenceFile(e.target.files?.[0] || null)}
-            className="w-full text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 
-                       file:rounded-full file:border-0 file:text-sm 
-                       file:font-semibold file:bg-teal-500 file:text-white 
-                       hover:file:bg-teal-600"
-          />
-          <div className="mt-2">
-            {referenceFile && (
-              <button
-                onClick={removeReferenceFile}
-                className="bg-gray-600 text-white px-4 py-2 rounded-lg font-bold"
-              >
-                Remove
-              </button>
-            )}
-          </div>
-          {referenceFile && (
-            <div className="mt-4">
-              <AudioPlayer audioUrl={URL.createObjectURL(referenceFile)} />
-              <p className="text-xs text-gray-400 mt-2">Reference playback</p>
-            </div>
-          )}
+          <button
+            onClick={handleUpload}
+            className="bg-teal-500 text-white px-6 py-2 rounded-lg font-bold w-full"
+            disabled={isLoading || !vocalsFile}
+          >
+            {isLoading ? "Processing..." : "Segment & Arrange Vocals"}
+          </button>
+          {error && <div className="text-red-500 mt-2">{error}</div>}
         </div>
-
-        <button
-          onClick={handleUpload}
-          className={`w-full font-bold py-2 px-4 rounded-lg ${isLoading ? "bg-gray-500" : "bg-teal-500 hover:bg-teal-600 text-white"}`}
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <span className="flex items-center justify-center">
-              <svg className="animate-spin h-5 w-5 mr-2 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
-              Processing...
-            </span>
-          ) : (
-            "Arrange"
-          )}
-        </button>
-        {isLoading && (
-          <div className="mt-4 flex items-center justify-center">
-            <svg className="animate-spin h-6 w-6 mr-2 text-teal-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
-            <span className="text-teal-400 font-semibold">Arranging and aligning... Please wait.</span>
-          </div>
-        )}
-
-        {error && (
-          <p className="mt-4 text-red-400 font-semibold">{error}</p>
-        )}
-
-        {result && !error && result.arranged_audio_url && (
-          <div className="mb-4">
-            <h3 className="text-teal-300 font-bold mb-2">Rearranged Output</h3>
-            <AudioPlayer audioUrl={result.arranged_audio_url} />
-            <p className="text-xs text-gray-400 mt-2">Rearranged playback</p>
-          </div>
-        )}
-        {result && (!result.arranged_audio_url || error) && (
-          <div className="mb-4">
-            <h3 className="text-teal-300 font-bold mb-2">Rearranged Output</h3>
-            <div className="text-red-400 text-xs">No rearranged output available. {error ? error : "Try different input files."}</div>
-          </div>
-        )}
-
-        {result && (
-          <>
-            {/* Alignment Results: Always visible, grouped */}
-            <div className="mt-6 bg-gray-700 p-4 rounded-lg">
-              <h2 className="text-lg font-semibold text-teal-400 mb-4">Alignment Results</h2>
-              <div className="mb-4">
-                <h3 className="text-teal-300 font-bold mb-2">Original Vocals</h3>
-                <AudioPlayer
-                  audioUrl={recordedUrl || (vocalsFile ? URL.createObjectURL(vocalsFile) : "")}
-                />
-                <p className="text-xs text-gray-400 mt-2">Original playback</p>
-              </div>
-              <div className="mb-4">
-                <h3 className="text-teal-300 font-bold mb-2">Rearranged Output</h3>
-                <AudioPlayer
-                  audioUrl={result.arranged_audio_url}
-                />
-                <p className="text-xs text-gray-400 mt-2">Rearranged playback</p>
-              </div>
-            </div>
-            {/* Timeline: Timestamps only, toggle visibility */}
-            <div className="mt-6 bg-gray-700 p-4 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="text-lg font-semibold text-teal-400">
-                  Timestamps
-                </h2>
-                <button
-                  onClick={() => setShowResult((v) => !v)}
-                  className="bg-teal-600 text-white px-3 py-1 rounded-lg text-xs font-bold"
-                >
-                  {showResult ? "Hide" : "Show"}
-                </button>
-              </div>
-              {showResult && (
-                <>
-                  <h3 className="text-teal-300 font-bold mb-2">Original Vocals Timeline</h3>
-                  <ul className="text-xs text-gray-200 mb-4">
-                    {result.vocals_segments?.map((item: any, idx: number) => (
-                      <li key={idx}>
-                        <span className="text-teal-400">{item.word || item.text}</span>: {item.start.toFixed(2)}s - {item.end.toFixed(2)}s
-                      </li>
-                    ))}
-                  </ul>
-                  <h3 className="text-teal-300 font-bold mb-2">Reference Audio Timeline</h3>
-                  <ul className="text-xs text-gray-200 mb-4">
-                    {result.reference_segments?.map((item: any, idx: number) => (
-                      <li key={idx}>
-                        <span className="text-teal-400">{item.word || item.text}</span>: {item.start.toFixed(2)}s - {item.end.toFixed(2)}s
-                      </li>
-                    ))}
-                  </ul>
-                  <h3 className="text-teal-300 font-bold mb-2">Rearranged Output Timeline</h3>
-                  <ul className="text-xs text-gray-200">
-                    {result.timeline.map((item: any, idx: number) => (
-                      <li key={idx}>
-                        <span className="text-teal-400">{item.word}</span>: {item.start.toFixed(2)}s - {item.end.toFixed(2)}s
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </div>
-          </>
+        {result && result.segments && result.arrangement && (
+          <ArrangementComparison
+            audioId={"uploaded-vocal"}
+            segments={result.segments}
+          />
         )}
       </div>
     </main>
