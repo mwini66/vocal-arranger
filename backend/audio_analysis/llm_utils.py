@@ -1,231 +1,161 @@
 import logging
-import time
-from typing import List, Dict, Optional
+import os
+from typing import List, Dict, Optional, Tuple
 
 import requests
 
 logger = logging.getLogger(__name__)
 
 
-class OllamaClient:
-    def __init__(self, base_url: str = "http://localhost:11434", model: str = "phi:latest"):
-        self.base_url = base_url
+class OpenRouterClient:
+    def __init__(self, api_key: str = None, model: str = "gpt-oss"):
+        self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
         self.model = model
+        self.base_url = "https://openrouter.ai/api/v1"
         self.session = requests.Session()
 
+        if self.api_key:
+            self.session.headers.update({
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            })
+
     def is_available(self) -> bool:
-        """Check if Ollama is running and model is available."""
-        try:
-            response = self.session.get(f"{self.base_url}/api/tags")
-            if response.status_code == 200:
-                models = [m["name"] for m in response.json().get("models", [])]
-                return self.model in models
-            return False
-        except Exception as e:
-            logger.error(f"Failed to connect to Ollama: {e}")
+        """Check if OpenRouter API is available."""
+        if not self.api_key:
+            logger.error("OpenRouter API key not provided")
             return False
 
-    def generate_completion(self, prompt: str, max_tokens: int = 150) -> Optional[str]:
-        """Generate text completion using Ollama."""
+        try:
+            # Test with a simple request
+            response = self.session.post(
+                f"{self.base_url}/chat/completions",
+                json={
+                    "model": self.model,
+                    "messages": [{"role": "user", "content": "test"}],
+                    "max_tokens": 1
+                },
+                timeout=10
+            )
+            return response.status_code in [200, 429]  # 429 is rate limit, but API is available
+        except Exception as e:
+            logger.error(f"Failed to connect to OpenRouter: {e}")
+            return False
+
+    def generate_completion(self, prompt: str, max_tokens: int = 300) -> Optional[str]:
+        """Generate text completion using OpenRouter API."""
+        if not self.api_key:
+            logger.error("OpenRouter API key not provided")
+            return None
+
         try:
             payload = {
                 "model": self.model,
-                "prompt": prompt,
-                "stream": False,
-                "options": {
-                    "num_ctx": 2048,
-                    "temperature": 0.1,
-                    "top_p": 0.9
-                }
+                "messages": [
+                    {"role": "system", "content": "You are a professional music arranger who specializes in vocal arrangement and song structure."},
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": max_tokens,
+                "temperature": 0.1,
+                "top_p": 0.9
             }
 
             response = self.session.post(
-                f"{self.base_url}/api/generate",
+                f"{self.base_url}/chat/completions",
                 json=payload,
-                timeout=30
+                timeout=45
             )
 
             if response.status_code == 200:
                 result = response.json()
-                return result.get("response", "").strip()
+                if "choices" in result and len(result["choices"]) > 0:
+                    return result["choices"][0]["message"]["content"].strip()
+                else:
+                    logger.error("No choices in OpenRouter response")
+                    return None
             else:
-                logger.error(f"Ollama request failed: {response.status_code}")
+                logger.error(f"OpenRouter request failed: {response.status_code} - {response.text}")
                 return None
 
         except Exception as e:
             logger.error(f"Error generating completion: {e}")
             return None
 
-    def tag_segment_structure(self, text: str, energy: float = 0.0, duration: float = 0.0) -> str:
-        """Tag a segment as intro, verse, chorus, bridge, or outro."""
-        prompt = f"""Analyze this vocal segment and classify it as one of: intro, verse, chorus, bridge, outro.
-
-Segment text: "{text}"
-Energy level: {energy:.2f}
-Duration: {duration:.2f} seconds
-
-Consider:
-- Intro: Often introductory, lower energy, setting the scene
-- Verse: Storytelling, narrative content, moderate energy  
-- Chorus: Catchy, repetitive, higher energy, main hook
-- Bridge: Transitional, different from verse/chorus
-- Outro: Concluding, farewell, wrapping up
-
-Respond with only one word: intro, verse, chorus, bridge, or outro"""
-
-        result = self.generate_completion(prompt, max_tokens=10)
-        if result:
-            # Extract just the tag word
-            tag = result.lower().strip().split()[0]
-            if tag in ["intro", "verse", "chorus", "bridge", "outro"]:
-                return tag
-
-        # Fallback based on energy and duration
-        if energy < 0.3:
-            return "intro"
-        elif energy > 0.7:
-            return "chorus"
-        else:
-            return "verse"
-
-    def suggest_arrangement(self, segments: List[Dict]) -> List[int]:
-        """Suggest an arrangement order for segments."""
+    def analyze_segment_sequence(self, segments: List[Dict]) -> Tuple[List[str], List[int]]:
+        """
+        Analyze the full sequence of segments for optimal arrangement.
+        Returns structure analysis and suggested arrangement order.
+        """
         if not segments:
-            return []
+            return [], []
 
-        # Create a summary of segments for the prompt
-        segment_summary = []
+        # Create comprehensive segment description
+        segment_descriptions = []
         for i, seg in enumerate(segments):
-            summary = f"Segment {i}: '{seg.get('text', '')[:50]}...' (energy: {seg.get('energy', 0):.2f}, duration: {seg.get('duration', 0):.1f}s)"
-            segment_summary.append(summary)
+            text = seg.get('text', '').strip()[:100]  # Truncate very long text
+            energy = seg.get('energy', 0)
+            duration = seg.get('duration', 0)
+            pause = seg.get('pause', 0)
 
-        prompt = f"""Arrange these vocal segments into a coherent song structure. Consider:
-- Start with an engaging intro
-- Build energy toward a climax  
-- Create logical lyrical flow
-- End with a satisfying conclusion
+            desc = f"[{i}] \"{text}\" (E:{energy:.3f}, D:{duration:.1f}s, P:{pause:.1f}s)"
+            segment_descriptions.append(desc)
 
-Segments:
-{chr(10).join(segment_summary)}
+        max_id = len(segment_descriptions) - 1
+        prompt = f"""Rearrange these vocal segments into a coherent song.
 
-Respond with only the segment numbers in order, separated by commas (e.g., "0,2,1,3")."""
+        Rules:
+        - Use only segment numbers 0-{max_id}.
+        - Output only the arrangement as comma-separated numbers.
+        - Intro = low energy
+        - Verse = medium energy
+        - Chorus = high energy, repeated
+        - Bridge = contrast
+        - Outro = calm
 
-        result = self.generate_completion(prompt, max_tokens=50)
+        Segments:
+        {chr(10).join(segment_descriptions)}
+
+        Output only:
+        ARRANGEMENT:"""
+
+        result = self.generate_completion(prompt, max_tokens=100)
+
         if result:
             try:
-                # Parse the arrangement order
-                order_str = result.strip().split('\n')[0]  # Take first line only
-                indices = [int(x.strip()) for x in order_str.split(',') if x.strip().isdigit()]
-
-                # Validate indices
-                valid_indices = [i for i in indices if 0 <= i < len(segments)]
-                if len(valid_indices) == len(segments) and set(valid_indices) == set(range(len(segments))):
-                    return valid_indices
-
+                return self._parse_arrangement_response(result, len(segments))
             except Exception as e:
-                logger.error(f"Failed to parse arrangement: {e}")
+                logger.error(f"Failed to parse arrangement response: {e}")
 
-        # Fallback: arrange by energy progression
-        return sorted(range(len(segments)), key=lambda i: segments[i].get('energy', 0))
+        # Fallback: return original order
+        return ["original"], list(range(len(segments)))
 
-    def get_text_embedding(self, text: str) -> Optional[List[float]]:
-        """Get text embedding from Ollama (if supported by model)."""
+    def _parse_arrangement_response(self, response: str, num_segments: int) -> Tuple[List[str], List[int]]:
+        """Parse the LLM response for arrangement order."""
         try:
-            payload = {
-                "model": self.model,
-                "prompt": f"Generate embedding for: {text}",
-                "stream": False
-            }
+            # Look for the arrangement line
+            lines = response.strip().split('\n')
+            arrangement_line = None
 
-            response = self.session.post(
-                f"{self.base_url}/api/embeddings",
-                json=payload,
-                timeout=15
-            )
+            for line in lines:
+                if 'ARRANGEMENT:' in line.upper() or any(char.isdigit() for char in line):
+                    arrangement_line = line
+                    break
 
-            if response.status_code == 200:
-                result = response.json()
-                return result.get("embedding")
+            if not arrangement_line:
+                arrangement_line = lines[-1] if lines else ""
+
+            # Extract numbers
+            import re
+            numbers = re.findall(r'\d+', arrangement_line)
+            arrangement = [int(n) for n in numbers if 0 <= int(n) < num_segments]
+
+            # Ensure all segments are included
+            if len(set(arrangement)) != num_segments:
+                logger.warning("LLM arrangement incomplete, using original order")
+                arrangement = list(range(num_segments))
+
+            return ["llm_analysis"], arrangement
 
         except Exception as e:
-            logger.debug(f"Embedding not supported: {e}")
-
-        return None
-
-    def batch_tag_segments(self, segments: List[Dict]) -> List[str]:
-        """Tag multiple segments efficiently."""
-        tags = []
-        for segment in segments:
-            text = segment.get('text', '')
-            energy = segment.get('energy', 0.0)
-            duration = segment.get('duration', 0.0)
-
-            tag = self.tag_segment_structure(text, energy, duration)
-            tags.append(tag)
-
-            # Small delay to avoid overwhelming Ollama
-            time.sleep(0.1)
-
-        return tags
-
-
-# Global client instance
-_ollama_client = None
-
-
-def get_ollama_client(model: str = "phi:latest") -> OllamaClient:
-    """Get or create Ollama client instance."""
-    global _ollama_client
-    if _ollama_client is None or _ollama_client.model != model:
-        _ollama_client = OllamaClient(model=model)
-    return _ollama_client
-
-
-def arrange_with_llm(segments: List[Dict]) -> tuple[List[int], float]:
-    """Arrange segments using LLM and return order with confidence score."""
-    client = get_ollama_client()
-
-    if not client.is_available():
-        logger.warning("Ollama not available, falling back to energy-based arrangement")
-        # Fallback: arrange by energy
-        order = sorted(range(len(segments)), key=lambda i: segments[i].get('energy', 0))
-        return order, 0.5
-
-    try:
-        # Get structure tags
-        tags = client.batch_tag_segments(segments)
-
-        # Get arrangement suggestion
-        suggested_order = client.suggest_arrangement(segments)
-
-        # Calculate confidence based on structure coherence
-        tag_order = [tags[i] for i in suggested_order]
-        structure_score = calculate_structure_score(tag_order)
-
-        return suggested_order, structure_score
-
-    except Exception as e:
-        logger.error(f"LLM arrangement failed: {e}")
-        # Fallback arrangement
-        order = list(range(len(segments)))
-        return order, 0.3
-
-
-def calculate_structure_score(tag_order: List[str]) -> float:
-    """Calculate how well the tag order follows typical song structure."""
-    ideal_patterns = [
-        ["intro", "verse", "chorus", "verse", "chorus", "outro"],
-        ["verse", "chorus", "verse", "chorus", "bridge", "chorus", "outro"],
-        ["intro", "verse", "chorus", "verse", "chorus", "bridge", "chorus", "outro"]
-    ]
-
-    best_score = 0.0
-    for pattern in ideal_patterns:
-        score = 0.0
-        for i, tag in enumerate(tag_order):
-            if i < len(pattern) and tag == pattern[i]:
-                score += 1.0
-        score /= max(len(tag_order), len(pattern))
-        best_score = max(best_score, score)
-
-    return best_score
+            logger.error(f"Error parsing arrangement response: {e}")
+            return ["error"], list(range(num_segments))
