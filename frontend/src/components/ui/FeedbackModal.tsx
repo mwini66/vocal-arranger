@@ -22,9 +22,9 @@ export interface ComprehensiveFeedback {
   session_id: string;
   user_rating: number;
   audio_quality: number;
-  arrangement_coherence: number;
-  energy_flow: number;
-  lyrical_flow: number;
+  alignment_accuracy: number;
+  text_matching_quality: number;
+  timing_synchronization: number;
   overall_satisfaction: number;
   feedback_text: string;
   would_use_again: boolean;
@@ -41,9 +41,9 @@ export default function FeedbackModal({
   const [ratings, setRatings] = useState({
     user_rating: 3,
     audio_quality: 3,
-    arrangement_coherence: 3,
-    energy_flow: 3,
-    lyrical_flow: 3,
+    alignment_accuracy: 3,
+    text_matching_quality: 3,
+    timing_synchronization: 3,
     overall_satisfaction: 3
   });
   const [feedbackText, setFeedbackText] = useState("");
@@ -77,9 +77,9 @@ export default function FeedbackModal({
       setRatings({
         user_rating: 3,
         audio_quality: 3,
-        arrangement_coherence: 3,
-        energy_flow: 3,
-        lyrical_flow: 3,
+        alignment_accuracy: 3,
+        text_matching_quality: 3,
+        timing_synchronization: 3,
         overall_satisfaction: 3
       });
       setFeedbackText("");
@@ -153,7 +153,7 @@ export default function FeedbackModal({
         <div className="p-6">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-teal-300">
-              🎯 Rate Your AI Arrangement
+              ⚡ Rate Your Temporal Alignment
             </h2>
             <button
               onClick={onClose}
@@ -164,13 +164,13 @@ export default function FeedbackModal({
           </div>
 
           <p className="text-gray-300 mb-6 text-center">
-            Your feedback helps train future AI models to create better arrangements!
+            Your feedback helps improve the windowed matching algorithm for better vocal alignment!
           </p>
 
-          {/* Arrangement Summary */}
+          {/* Alignment Summary */}
           <div className="bg-gray-700/50 rounded-lg p-4 mb-6">
             <h3 className="text-lg font-semibold text-purple-300 mb-2">
-              Arrangement Summary
+              Temporal Alignment Summary
             </h3>
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
@@ -178,18 +178,18 @@ export default function FeedbackModal({
                 <span className="text-white ml-2">{arrangementData.original_segments?.length || 0}</span>
               </div>
               <div>
-                <span className="text-gray-400">Arranged Segments:</span>
-                <span className="text-white ml-2">{arrangementData.arranged_segments?.length || 0}</span>
+                <span className="text-gray-400">Reference Segments:</span>
+                <span className="text-white ml-2">{arrangementData.reference_segments?.length || 0}</span>
               </div>
               <div>
-                <span className="text-gray-400">AI Confidence:</span>
+                <span className="text-gray-400">Match Rate:</span>
                 <span className="text-white ml-2">
-                  {((arrangementData.ai_analysis?.confidence || 0) * 100).toFixed(1)}%
+                  {((arrangementData.reference_structure?.match_rate || 0) * 100).toFixed(1)}%
                 </span>
               </div>
               <div>
-                <span className="text-gray-400">Genre:</span>
-                <span className="text-white ml-2">{arrangementData.genre || "Auto-detect"}</span>
+                <span className="text-gray-400">Window Size Used:</span>
+                <span className="text-white ml-2">{arrangementData.reference_structure?.selected_window_size || "Auto"}</span>
               </div>
             </div>
           </div>
@@ -200,42 +200,42 @@ export default function FeedbackModal({
               category="user_rating"
               value={ratings.user_rating}
               label="Overall Rating"
-              description="How would you rate this arrangement overall?"
+              description="How would you rate this temporal alignment overall?"
             />
 
             <RatingStars
               category="audio_quality"
               value={ratings.audio_quality}
               label="Audio Quality"
-              description="How is the technical quality of the arranged audio?"
+              description="How smooth and natural does the aligned audio sound?"
             />
 
             <RatingStars
-              category="arrangement_coherence"
-              value={ratings.arrangement_coherence}
-              label="Arrangement Coherence"
-              description="Does the arrangement flow logically from segment to segment?"
+              category="alignment_accuracy"
+              value={ratings.alignment_accuracy}
+              label="Alignment Accuracy"
+              description="How well did the windowed matching algorithm align your segments to the reference timing?"
             />
 
             <RatingStars
-              category="energy_flow"
-              value={ratings.energy_flow}
-              label="Energy Flow"
-              description="How well does the energy progression work throughout the song?"
+              category="text_matching_quality"
+              value={ratings.text_matching_quality}
+              label="Text Matching Quality"
+              description="How accurately were similar lyrics matched between your vocals and the reference?"
             />
 
             <RatingStars
-              category="lyrical_flow"
-              value={ratings.lyrical_flow}
-              label="Lyrical Flow"
-              description="Do the lyrics flow naturally and make sense in this order?"
+              category="timing_synchronization"
+              value={ratings.timing_synchronization}
+              label="Timing Synchronization"
+              description="How well does your vocal timing match the reference track structure?"
             />
 
             <RatingStars
               category="overall_satisfaction"
               value={ratings.overall_satisfaction}
               label="Overall Satisfaction"
-              description="How satisfied are you with this AI arrangement result?"
+              description="How satisfied are you with this temporal alignment result?"
             />
           </div>
 
@@ -247,7 +247,7 @@ export default function FeedbackModal({
             <textarea
               value={feedbackText}
               onChange={(e) => setFeedbackText(e.target.value)}
-              placeholder="Share any specific thoughts about what worked well or could be improved..."
+              placeholder="Share thoughts about the matching accuracy, audio quality, or timing alignment..."
               className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-white resize-none"
               rows={3}
             />
@@ -263,7 +263,7 @@ export default function FeedbackModal({
                 className="w-4 h-4 text-purple-600 bg-gray-700 border-gray-600 rounded focus:ring-purple-500"
               />
               <span className="text-sm text-gray-200">
-                I would use this AI arrangement feature again
+                I would use this temporal alignment feature again
               </span>
             </label>
           </div>
@@ -271,14 +271,14 @@ export default function FeedbackModal({
           {/* Training Data Notice */}
           <div className="bg-blue-900/30 border border-blue-600 rounded-lg p-4 mb-6">
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-blue-400">🤖</span>
+              <span className="text-blue-400">⚡</span>
               <h4 className="text-sm font-semibold text-blue-300">
-                AI Training Data
+                Algorithm Improvement Data
               </h4>
             </div>
             <p className="text-xs text-blue-200">
-              Your feedback, along with the arrangement data (segment features, AI decisions, and quality scores),
-              will be used to train future AI models. This helps improve arrangement quality for all users.
+              Your feedback helps improve the windowed matching algorithm and audio processing quality.
+              Data includes segment features, matching accuracy scores, and alignment quality metrics.
               No personal information is stored.
             </p>
           </div>
