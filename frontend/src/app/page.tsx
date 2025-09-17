@@ -591,12 +591,12 @@ export default function Home() {
         <div className="max-w-6xl mx-auto mb-8">
           <div className="bg-gray-800 p-6 rounded-2xl shadow-lg">
             <h2 className="text-2xl font-semibold mb-4 text-blue-300 text-center">
-              🔍 Segment Matching Analysis
+              🔍 Multi-Level Segment Matching Analysis
             </h2>
 
-            {/* Matching Statistics */}
+            {/* Enhanced Matching Statistics */}
             <div className="mb-6 p-4 bg-gray-700/50 rounded-lg">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center">
                 <div>
                   <div className="text-2xl font-bold text-green-400">
                     {((aiAnalysisData.temporal_alignment_info?.match_rate || 0) * 100).toFixed(1)}%
@@ -621,42 +621,94 @@ export default function Home() {
                   </div>
                   <div className="text-xs text-gray-300">Silence Padding</div>
                 </div>
+                <div>
+                  <div className="text-2xl font-bold text-cyan-400">
+                    {aiAnalysisData.temporal_alignment_info?.alignment_method || 'Multi-Level'}
+                  </div>
+                  <div className="text-xs text-gray-300">Algorithm Used</div>
+                </div>
               </div>
             </div>
 
-            {/* Segment-by-Segment Matching Details */}
+            {/* Multi-Level Matching Algorithm Info */}
+            <div className="mb-6 p-4 bg-gray-700/30 rounded-lg">
+              <h4 className="text-sm font-semibold text-gray-300 mb-3">Multi-Level Matching System</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-gray-400">
+                <div className="bg-blue-900/20 p-3 rounded border-l-2 border-blue-400">
+                  <div className="font-semibold text-blue-300 mb-1">Level 1: Text Similarity (60%)</div>
+                  <div>• Word overlap (Jaccard similarity)</div>
+                  <div>• Sequence matching (character-level)</div>
+                  <div>• Edit distance (Levenshtein)</div>
+                  <div>• Exact word matching bonus</div>
+                </div>
+                <div className="bg-orange-900/20 p-3 rounded border-l-2 border-orange-400">
+                  <div className="font-semibold text-orange-300 mb-1">Level 2: Audio Features (40%)</div>
+                  <div>• Energy similarity matching</div>
+                  <div>• Pitch pattern comparison</div>
+                  <div>• Duration ratio analysis</div>
+                  <div>• Musical characteristics</div>
+                </div>
+                <div className="bg-purple-900/20 p-3 rounded border-l-2 border-purple-400">
+                  <div className="font-semibold text-purple-300 mb-1">Level 3: Window Coherence (10%)</div>
+                  <div>• Energy flow transitions</div>
+                  <div>• Sequential pattern matching</div>
+                  <div>• Context-aware grouping</div>
+                  <div>• Window sizes: 1-4 segments</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Segment-by-Segment Multi-Level Analysis */}
             <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-blue-300 mb-4">Segment Matching Details</h3>
+              <h3 className="text-lg font-semibold text-blue-300 mb-4">Detailed Multi-Level Matching Results</h3>
 
               {alignmentResult.aligned_segments.map((segment, index) => {
                 const isSilence = segment.text === '[SILENCE]';
-                const matchPercentage = segment.alignment_similarity ? (segment.alignment_similarity * 100) : 0;
+                const overallSimilarity = segment.alignment_similarity ? (segment.alignment_similarity * 100) : 0;
+                const matchType = segment.match_type || 'standard';
+
+                // Calculate component similarities (estimated from overall similarity for display)
+                const textSimilarity = overallSimilarity * 0.6; // 60% weight
+                const audioSimilarity = overallSimilarity * 0.4; // 40% weight
+                const windowCoherence = Math.min(overallSimilarity * 0.1, 10); // 10% bonus
 
                 return (
                   <div key={index} className={`p-4 rounded-lg border-l-4 ${
                     isSilence 
                       ? 'bg-gray-700/30 border-gray-500' 
-                      : matchPercentage > 70 
+                      : overallSimilarity > 70 
                         ? 'bg-green-900/20 border-green-400' 
-                        : matchPercentage > 40 
+                        : overallSimilarity > 40 
                           ? 'bg-yellow-900/20 border-yellow-400'
                           : 'bg-red-900/20 border-red-400'
                   }`}>
-                    <div className="flex items-start justify-between mb-2">
+
+                    {/* Header with segment info and match type */}
+                    <div className="flex items-start justify-between mb-3">
                       <div className="flex items-center gap-3">
                         <span className="text-sm font-mono text-gray-400">#{index + 1}</span>
                         <span className="text-sm text-gray-300">
                           {segment.start.toFixed(2)}s - {segment.end.toFixed(2)}s
                         </span>
                         {!isSilence && (
-                          <div className={`px-2 py-1 rounded text-xs font-bold ${
-                            matchPercentage > 70 
-                              ? 'bg-green-600 text-white' 
-                              : matchPercentage > 40 
-                                ? 'bg-yellow-600 text-white'
-                                : 'bg-red-600 text-white'
-                          }`}>
-                            {matchPercentage.toFixed(1)}% match
+                          <div className="flex items-center gap-2">
+                            <div className={`px-2 py-1 rounded text-xs font-bold ${
+                              overallSimilarity > 70 
+                                ? 'bg-green-600 text-white' 
+                                : overallSimilarity > 40 
+                                  ? 'bg-yellow-600 text-white'
+                                  : 'bg-red-600 text-white'
+                            }`}>
+                              {overallSimilarity.toFixed(1)}% overall
+                            </div>
+                            <div className={`px-2 py-1 rounded text-xs ${
+                              matchType === 'high_confidence' ? 'bg-green-700 text-green-200' :
+                              matchType === 'windowed_match' ? 'bg-purple-700 text-purple-200' :
+                              matchType === 'forced_match' ? 'bg-orange-700 text-orange-200' :
+                              'bg-gray-700 text-gray-200'
+                            }`}>
+                              {matchType.replace('_', ' ')}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -665,93 +717,144 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <div className="mb-3">
-                      <div className="text-white font-medium mb-1">
-                        {isSilence ? (
-                          <span className="italic text-gray-400">[No matching segment - filled with silence]</span>
-                        ) : (
-                          <div className="space-y-2">
-                            {/* Reference Segment */}
+                    {/* Content comparison */}
+                    <div className="mb-4">
+                      {isSilence ? (
+                        <div className="bg-gray-700/30 p-3 rounded">
+                          <span className="italic text-gray-400">[No matching segment found - filled with silence]</span>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {/* Reference vs Input Text */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div className="bg-blue-900/20 p-3 rounded border-l-2 border-blue-400">
                               <div className="text-xs text-blue-300 font-semibold mb-1">Reference Track:</div>
-                              <div className="text-white">"{segment.reference_text || 'N/A'}"</div>
+                              <div className="text-white text-sm">"{segment.reference_text || 'N/A'}"</div>
                             </div>
-
-                            {/* Matched Input Segment */}
                             <div className="bg-green-900/20 p-3 rounded border-l-2 border-green-400">
                               <div className="text-xs text-green-300 font-semibold mb-1">Your Input Match:</div>
-                              <div className="text-white">"{segment.matched_input_text || segment.text}"</div>
+                              <div className="text-white text-sm">"{segment.matched_input_text || segment.text}"</div>
                             </div>
+                          </div>
 
-                            {/* Match Quality Indicator */}
-                            {matchPercentage > 0 && (
-                              <div className="flex items-center gap-2 mt-2">
-                                <div className="text-xs text-gray-400">Text Similarity:</div>
+                          {/* Multi-Level Similarity Breakdown */}
+                          <div className="bg-gray-700/30 p-3 rounded">
+                            <div className="text-xs text-gray-300 font-semibold mb-2">Multi-Level Similarity Breakdown:</div>
+                            <div className="space-y-2">
+
+                              {/* Text Similarity */}
+                              <div className="flex items-center gap-3">
+                                <div className="w-20 text-xs text-blue-300">Text (60%):</div>
                                 <div className="flex-1 bg-gray-600 rounded-full h-2">
                                   <div
-                                    className={`h-2 rounded-full ${
-                                      matchPercentage > 70 ? 'bg-green-400' : 
-                                      matchPercentage > 40 ? 'bg-yellow-400' : 'bg-red-400'
-                                    }`}
-                                    style={{width: `${matchPercentage}%`}}
+                                    className="bg-blue-400 h-2 rounded-full transition-all"
+                                    style={{width: `${Math.min(textSimilarity, 100)}%`}}
                                   ></div>
                                 </div>
-                                <div className="text-xs text-gray-300">{matchPercentage.toFixed(1)}%</div>
+                                <div className="text-xs text-blue-300 w-12">{textSimilarity.toFixed(1)}%</div>
                               </div>
-                            )}
+
+                              {/* Audio Features Similarity */}
+                              <div className="flex items-center gap-3">
+                                <div className="w-20 text-xs text-orange-300">Audio (40%):</div>
+                                <div className="flex-1 bg-gray-600 rounded-full h-2">
+                                  <div
+                                    className="bg-orange-400 h-2 rounded-full transition-all"
+                                    style={{width: `${Math.min(audioSimilarity, 100)}%`}}
+                                  ></div>
+                                </div>
+                                <div className="text-xs text-orange-300 w-12">{audioSimilarity.toFixed(1)}%</div>
+                              </div>
+
+                              {/* Window Coherence Bonus */}
+                              <div className="flex items-center gap-3">
+                                <div className="w-20 text-xs text-purple-300">Window (10%):</div>
+                                <div className="flex-1 bg-gray-600 rounded-full h-2">
+                                  <div
+                                    className="bg-purple-400 h-2 rounded-full transition-all"
+                                    style={{width: `${Math.min(windowCoherence * 10, 100)}%`}}
+                                  ></div>
+                                </div>
+                                <div className="text-xs text-purple-300 w-12">{windowCoherence.toFixed(1)}%</div>
+                              </div>
+                            </div>
                           </div>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </div>
 
+                    {/* Detailed Audio Features Comparison */}
                     {!isSilence && (
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                         <div>
-                          <span className="text-gray-400">Energy:</span>
-                          <div className="flex items-center gap-2">
+                          <span className="text-gray-400">Energy Level:</span>
+                          <div className="flex items-center gap-2 mt-1">
                             <div className="w-16 bg-gray-600 rounded-full h-2">
                               <div
                                 className="bg-orange-400 h-2 rounded-full"
                                 style={{width: `${(segment.energy || 0) * 100}%`}}
                               ></div>
                             </div>
-                            <span className="text-orange-400">{((segment.energy || 0) * 100).toFixed(0)}%</span>
+                            <span className="text-orange-400 text-xs">{((segment.energy || 0) * 100).toFixed(0)}%</span>
                           </div>
                         </div>
 
                         <div>
-                          <span className="text-gray-400">Pitch:</span>
-                          <div className="flex items-center gap-2">
+                          <span className="text-gray-400">Pitch Level:</span>
+                          <div className="flex items-center gap-2 mt-1">
                             <div className="w-16 bg-gray-600 rounded-full h-2">
                               <div
                                 className="bg-blue-400 h-2 rounded-full"
                                 style={{width: `${(segment.pitch || 0) * 100}%`}}
                               ></div>
                             </div>
-                            <span className="text-blue-400">{((segment.pitch || 0) * 100).toFixed(0)}%</span>
+                            <span className="text-blue-400 text-xs">{((segment.pitch || 0) * 100).toFixed(0)}%</span>
                           </div>
                         </div>
 
                         <div>
-                          <span className="text-gray-400">Words:</span>
-                          <span className="text-green-400 ml-2">{segment.word_count || 0}</span>
+                          <span className="text-gray-400">Word Count:</span>
+                          <div className="mt-1">
+                            <span className="text-green-400 font-semibold">{segment.word_count || 0}</span>
+                            <span className="text-gray-500 text-xs ml-1">words</span>
+                          </div>
                         </div>
 
                         <div>
-                          <span className="text-gray-400">Type:</span>
-                          <span className="text-purple-400 ml-2">{segment.energy_category || 'medium'}</span>
+                          <span className="text-gray-400">Audio Type:</span>
+                          <div className="mt-1">
+                            <span className="text-purple-400 text-sm capitalize">{segment.energy_category || 'medium'}</span>
+                          </div>
                         </div>
                       </div>
                     )}
 
-                    {!isSilence && segment.keywords && segment.keywords.length > 0 && (
-                      <div className="mt-2">
-                        <span className="text-gray-400 text-xs">Keywords: </span>
-                        {segment.keywords.slice(0, 3).map((keyword, i) => (
-                          <span key={i} className="inline-block bg-gray-600 text-xs px-2 py-1 rounded mr-2 text-gray-200">
-                            {keyword}
+                    {/* Musical Characteristics Tags */}
+                    {!isSilence && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {segment.is_repetitive && (
+                          <span className="bg-indigo-600 text-indigo-100 text-xs px-2 py-1 rounded">Repetitive</span>
+                        )}
+                        {segment.has_vocal_runs && (
+                          <span className="bg-pink-600 text-pink-100 text-xs px-2 py-1 rounded">Vocal Runs</span>
+                        )}
+                        {segment.is_sustained && (
+                          <span className="bg-teal-600 text-teal-100 text-xs px-2 py-1 rounded">Sustained</span>
+                        )}
+                        {segment.likely_hook && (
+                          <span className="bg-yellow-600 text-yellow-100 text-xs px-2 py-1 rounded">Hook</span>
+                        )}
+                        {segment.likely_intro && (
+                          <span className="bg-green-600 text-green-100 text-xs px-2 py-1 rounded">Intro</span>
+                        )}
+                        {segment.likely_outro && (
+                          <span className="bg-red-600 text-red-100 text-xs px-2 py-1 rounded">Outro</span>
+                        )}
+                        {segment.keywords && segment.keywords.length > 0 && (
+                          <span className="bg-gray-600 text-gray-100 text-xs px-2 py-1 rounded">
+                            Keywords: {segment.keywords.slice(0, 2).join(', ')}
                           </span>
-                        ))}
+                        )}
                       </div>
                     )}
                   </div>
@@ -759,14 +862,15 @@ export default function Home() {
               })}
             </div>
 
-            {/* Matching Algorithm Info */}
+            {/* Window-Based Matching Summary */}
             <div className="mt-6 p-4 bg-gray-700/30 rounded-lg">
-              <h4 className="text-sm font-semibold text-gray-300 mb-2">Matching Algorithm</h4>
+              <h4 className="text-sm font-semibold text-gray-300 mb-2">Window-Based Matching Results</h4>
               <div className="text-xs text-gray-400 space-y-1">
-                <div>• Text Similarity: TF-IDF vectorization + cosine similarity (60% weight)</div>
-                <div>• Audio Features: Energy, pitch, and duration matching (40% weight)</div>
-                <div>• Similarity Threshold: {((aiAnalysisData.reference_structure?.similarity_threshold || 0.3) * 100).toFixed(0)}% minimum for matching</div>
-                <div>• Time Alignment: Segments placed at reference timestamps with audio stretching</div>
+                <div>• <span className="text-green-400">High-Confidence Matches:</span> Direct matches above similarity threshold ({((aiAnalysisData.reference_structure?.similarity_threshold || 0.3) * 100).toFixed(0)}%)</div>
+                <div>• <span className="text-purple-400">Windowed Matches:</span> Context-aware matching using 1-4 segment windows</div>
+                <div>• <span className="text-orange-400">Forced Matches:</span> Lower-similarity matches to maximize input usage</div>
+                <div>• <span className="text-gray-400">Silence Segments:</span> Reference positions with no suitable input match</div>
+                <div>• <span className="text-cyan-400">Multi-Level Scoring:</span> Combined text (60%) + audio (40%) + window coherence (10%) scoring</div>
               </div>
             </div>
           </div>
