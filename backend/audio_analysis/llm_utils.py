@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 class OpenRouterClient:
-    def __init__(self, api_key: str = None, model: str = "gpt-oss"):
+    def __init__(self, api_key: str = None, model: str = "openai/gpt-oss-20b:free"):
         self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
         self.model = model
         self.base_url = "https://openrouter.ai/api/v1"
