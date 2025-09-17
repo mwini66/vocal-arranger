@@ -1,16 +1,14 @@
-import os
-import json
+import difflib
 import logging
-from typing import List, Dict, Tuple, Optional
-from collections import defaultdict
-import numpy as np
+from typing import List, Dict, Tuple
+
 import librosa
+import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-import difflib
 
-from .whisperx_utils import transcribe_with_whisperx
 from .extract_features import extract_segment_features, convert_numpy_types
+from .whisperx_utils import transcribe_with_whisperx
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +161,8 @@ class ReferenceAligner:
 
         return matrix
 
-    def _create_aligned_segments(self, user_segments: List[Dict], reference_segments: List[Dict], alignment_map: List[Dict]) -> List[Dict]:
+    def _create_aligned_segments(self, user_segments: List[Dict], reference_segments: List[Dict],
+                                 alignment_map: List[Dict]) -> List[Dict]:
         """
         Create new segments with user audio data but reference timing.
         """
@@ -220,7 +219,7 @@ class ReferenceAligner:
         return aligned_segments
 
     def _generate_alignment_info(self, user_segments: List[Dict], reference_segments: List[Dict],
-                               alignment_map: List[Dict]) -> Dict:
+                                 alignment_map: List[Dict]) -> Dict:
         """
         Generate statistics and information about the alignment process.
         """
@@ -249,7 +248,7 @@ class ReferenceAligner:
         }
 
     def create_aligned_audio(self, user_audio_path: str, aligned_segments: List[Dict],
-                           output_path: str) -> str:
+                             output_path: str) -> str:
         """
         Create new audio file with user vocals arranged according to reference timing.
         Uses segment placement instead of time stretching to preserve audio quality.

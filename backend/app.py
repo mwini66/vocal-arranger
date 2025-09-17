@@ -8,8 +8,8 @@ from flask_cors import CORS
 
 from audio_analysis.arrangement import AIVocalArranger
 from audio_analysis.extract_features import extract_segment_features
-from audio_analysis.whisperx_utils import transcribe_with_whisperx
 from audio_analysis.reference_alignment import ReferenceAligner
+from audio_analysis.whisperx_utils import transcribe_with_whisperx
 
 load_dotenv()
 app = Flask(__name__)
@@ -75,34 +75,313 @@ def arrange():
 @app.route("/arrangement/feedback", methods=["POST"])
 def arrangement_feedback():
     """
-    Accepts user feedback for an arrangement.
-    Expects JSON payload:
+    Enhanced feedback system for AI arrangement quality assessment.
+    Collects comprehensive data for training future end-to-end AI models.
+
+    Expected JSON payload:
     {
-        "audio_id": str,
-        "arrangement_type": "hybrid" | "llm_only",
-        "ordered_indices": [...],
-        "score": float,
+        "session_id": str,
         "user_rating": int (1-5),
-        "segments": [...] (optional),
-        "timestamp": str (optional)
+        "audio_quality": int (1-5),
+        "arrangement_coherence": int (1-5),
+        "energy_flow": int (1-5),
+        "lyrical_flow": int (1-5),
+        "overall_satisfaction": int (1-5),
+        "feedback_text": str (optional),
+        "would_use_again": bool,
+        "arrangement_data": {
+            "original_segments": [...],
+            "arranged_segments": [...],
+            "ai_analysis": {...},
+            "reference_segments": [...] (optional),
+            "genre": str (optional)
+        }
     }
     """
     data = request.get_json()
     if not data:
         return jsonify({"error": "Missing feedback data"}), 400
 
-    data["timestamp"] = data.get("timestamp") or datetime.utcnow().isoformat()
+    # Validate required fields
+    required_fields = ["session_id", "user_rating", "arrangement_data"]
+    for field in required_fields:
+        if field not in data:
+            return jsonify({"error": f"Missing required field: {field}"}), 400
+
+    # Create comprehensive feedback record
+    feedback_record = {
+        "feedback_id": f"fb_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{data['session_id'][-8:]}",
+        "timestamp": datetime.utcnow().isoformat(),
+        "session_id": data["session_id"],
+
+        # User ratings (1-5 scale)
+        "ratings": {
+            "overall": data["user_rating"],
+            "audio_quality": data.get("audio_quality", data["user_rating"]),
+            "arrangement_coherence": data.get("arrangement_coherence", data["user_rating"]),
+            "energy_flow": data.get("energy_flow", data["user_rating"]),
+            "lyrical_flow": data.get("lyrical_flow", data["user_rating"]),
+            "overall_satisfaction": data.get("overall_satisfaction", data["user_rating"])
+        },
+
+        # Qualitative feedback
+        "feedback": {
+            "text": data.get("feedback_text", ""),
+            "would_use_again": data.get("would_use_again", True)
+        },
+
+        # AI arrangement data for model training
+        "arrangement_analysis": {
+            "original_arrangement": data["arrangement_data"].get("original_arrangement", []),
+            "ai_confidence": data["arrangement_data"].get("ai_analysis", {}).get("confidence", 0),
+            "ai_reasoning": data["arrangement_data"].get("ai_analysis", {}).get("reasoning", ""),
+            "arrangement_method": data["arrangement_data"].get("ai_analysis", {}).get("method", "unknown"),
+            "genre_hint": data["arrangement_data"].get("genre", "auto-detect")
+        },
+
+        # Segment-level training data
+        "training_data": {
+            "input_segments": _extract_segment_features_for_training(
+                data["arrangement_data"].get("original_segments", [])
+            ),
+            "arranged_segments": _extract_segment_features_for_training(
+                data["arrangement_data"].get("arranged_segments", [])
+            ),
+            "reference_segments": _extract_segment_features_for_training(
+                data["arrangement_data"].get("reference_segments", [])
+            ) if data["arrangement_data"].get("reference_segments") else None,
+
+            # Arrangement pattern analysis
+            "arrangement_pattern": _analyze_arrangement_pattern(
+                data["arrangement_data"].get("original_segments", []),
+                data["arrangement_data"].get("arranged_segments", [])
+            ),
+
+            # Feature correlations for training
+            "feature_analysis": _analyze_segment_relationships(
+                data["arrangement_data"].get("arranged_segments", [])
+            )
+        },
+
+        # Model performance metrics
+        "model_performance": {
+            "processing_successful": True,
+            "segments_used": len(data["arrangement_data"].get("arranged_segments", [])),
+            "segments_available": len(data["arrangement_data"].get("original_segments", [])),
+            "usage_efficiency": len(data["arrangement_data"].get("arranged_segments", [])) / max(1, len(
+                data["arrangement_data"].get("original_segments", []))),
+            "reference_match_quality": data["arrangement_data"].get("reference_structure", {}).get("matched_segments",
+                                                                                                   0) / max(1, len(
+                data["arrangement_data"].get("reference_segments", []))) if data["arrangement_data"].get(
+                "reference_segments") else None
+        }
+    }
 
     try:
+        # Save to feedback file
         with open(FEEDBACK_FILE, "r+") as f:
             feedback_list = json.load(f)
-            feedback_list.append(data)
+            feedback_list.append(feedback_record)
             f.seek(0)
             json.dump(feedback_list, f, indent=2)
             f.truncate()
-        return jsonify({"status": "success"}), 200
+
+        # Also save detailed training data separately for ML pipeline
+        _save_training_data(feedback_record)
+
+        return jsonify({
+            "status": "success",
+            "feedback_id": feedback_record["feedback_id"],
+            "message": "Comprehensive feedback recorded for model training"
+        }), 200
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Failed to save feedback: {str(e)}"}), 500
+
+
+def _extract_segment_features_for_training(segments):
+    """Extract key features from segments for ML training"""
+    if not segments:
+        return []
+
+    training_features = []
+    for i, segment in enumerate(segments):
+        feature_vector = {
+            "position": i,
+            "start_time": segment.get("start", 0),
+            "end_time": segment.get("end", 0),
+            "duration": segment.get("end", 0) - segment.get("start", 0),
+
+            # Audio features (normalized 0-1)
+            "energy": segment.get("energy", 0),
+            "pitch": segment.get("pitch", 0),
+            "pause_before": segment.get("pause", 0),
+
+            # Categorical features (encoded)
+            "energy_category": segment.get("energy_category", "medium"),
+            "pitch_category": segment.get("pitch_category", "medium"),
+            "duration_category": segment.get("duration_category", "medium"),
+            "text_density": segment.get("text_density", "medium"),
+
+            # Text features
+            "text": segment.get("text", ""),
+            "word_count": segment.get("word_count", 0),
+            "unique_word_ratio": segment.get("unique_word_ratio", 0),
+            "keywords": segment.get("keywords", []),
+
+            # Musical characteristics (boolean)
+            "is_repetitive": segment.get("is_repetitive", False),
+            "has_vocal_runs": segment.get("has_vocal_runs", False),
+            "is_sustained": segment.get("is_sustained", False),
+
+            # Structural hints (boolean)
+            "likely_intro": segment.get("likely_intro", False),
+            "likely_outro": segment.get("likely_outro", False),
+            "likely_hook": segment.get("likely_hook", False)
+        }
+        training_features.append(feature_vector)
+
+    return training_features
+
+
+def _analyze_arrangement_pattern(original_segments, arranged_segments):
+    """Analyze how segments were rearranged for pattern learning"""
+    if not original_segments or not arranged_segments:
+        return {}
+
+    # Create mapping from arranged back to original
+    arrangement_mapping = []
+    for arranged_idx, arranged_segment in enumerate(arranged_segments):
+        # Find this segment in the original list
+        for orig_idx, orig_segment in enumerate(original_segments):
+            if (arranged_segment.get("text", "") == orig_segment.get("text", "") and
+                    abs(arranged_segment.get("start", 0) - orig_segment.get("start", 0)) < 0.1):
+                arrangement_mapping.append({
+                    "arranged_position": arranged_idx,
+                    "original_position": orig_idx,
+                    "movement_distance": arranged_idx - orig_idx
+                })
+                break
+
+    return {
+        "mapping": arrangement_mapping,
+        "total_segments": len(arranged_segments),
+        "segments_reordered": len([m for m in arrangement_mapping if m["movement_distance"] != 0]),
+        "average_movement": sum([abs(m["movement_distance"]) for m in arrangement_mapping]) / max(1,
+                                                                                                  len(arrangement_mapping)),
+        "pattern_type": _classify_arrangement_pattern(arrangement_mapping)
+    }
+
+
+def _classify_arrangement_pattern(mapping):
+    """Classify the type of arrangement pattern for training data"""
+    if not mapping:
+        return "unknown"
+
+    movements = [m["movement_distance"] for m in mapping]
+    reordered_count = len([m for m in movements if m != 0])
+
+    if reordered_count == 0:
+        return "no_change"
+    elif reordered_count <= 2:
+        return "minimal_reorder"
+    elif all(m >= 0 for m in movements):
+        return "forward_progression"
+    elif all(m <= 0 for m in movements):
+        return "reverse_order"
+    else:
+        return "complex_reorder"
+
+
+def _analyze_segment_relationships(segments):
+    """Analyze relationships between adjacent segments for training"""
+    if len(segments) < 2:
+        return {}
+
+    relationships = []
+    for i in range(len(segments) - 1):
+        current = segments[i]
+        next_seg = segments[i + 1]
+
+        relationship = {
+            "position": i,
+            "energy_transition": next_seg.get("energy", 0) - current.get("energy", 0),
+            "pitch_transition": next_seg.get("pitch", 0) - current.get("pitch", 0),
+            "duration_ratio": next_seg.get("end", 0) - next_seg.get("start", 0) / max(0.1, current.get("end",
+                                                                                                       0) - current.get(
+                "start", 0)),
+            "text_similarity": _calculate_text_similarity(current.get("text", ""), next_seg.get("text", "")),
+            "structural_compatibility": _check_structural_compatibility(current, next_seg)
+        }
+        relationships.append(relationship)
+
+    return {
+        "segment_transitions": relationships,
+        "energy_flow_pattern": [r["energy_transition"] for r in relationships],
+        "pitch_flow_pattern": [r["pitch_transition"] for r in relationships],
+        "overall_coherence_score": sum([r["text_similarity"] for r in relationships]) / max(1, len(relationships))
+    }
+
+
+def _calculate_text_similarity(text1, text2):
+    """Simple text similarity for training data"""
+    if not text1 or not text2:
+        return 0
+
+    words1 = set(text1.lower().split())
+    words2 = set(text2.lower().split())
+
+    if not words1 or not words2:
+        return 0
+
+    intersection = words1.intersection(words2)
+    union = words1.union(words2)
+
+    return len(intersection) / len(union) if union else 0
+
+
+def _check_structural_compatibility(seg1, seg2):
+    """Check if two segments work well together structurally"""
+    compatibility_score = 0
+
+    # Energy compatibility
+    energy_diff = abs(seg1.get("energy", 0) - seg2.get("energy", 0))
+    if energy_diff < 0.3:  # Similar energy levels
+        compatibility_score += 0.3
+    elif energy_diff > 0.5:  # Good contrast
+        compatibility_score += 0.2
+
+    # Structural role compatibility
+    if seg1.get("likely_intro", False) and not seg2.get("likely_outro", False):
+        compatibility_score += 0.3
+    if seg2.get("likely_outro", False) and not seg1.get("likely_intro", False):
+        compatibility_score += 0.3
+    if seg1.get("likely_hook", False) or seg2.get("likely_hook", False):
+        compatibility_score += 0.4
+
+    return min(1.0, compatibility_score)
+
+
+def _save_training_data(feedback_record):
+    """Save structured training data for ML pipeline"""
+    training_dir = os.path.join("data", "training")
+    os.makedirs(training_dir, exist_ok=True)
+
+    training_file = os.path.join(training_dir, f"training_data_{datetime.now().strftime('%Y%m')}.jsonl")
+
+    # Create training example in JSONL format
+    training_example = {
+        "feedback_id": feedback_record["feedback_id"],
+        "timestamp": feedback_record["timestamp"],
+        "rating": feedback_record["ratings"]["overall"],
+        "features": feedback_record["training_data"],
+        "target_quality": feedback_record["ratings"],
+        "arrangement_success": feedback_record["ratings"]["overall"] >= 4
+    }
+
+    # Append to monthly training file
+    with open(training_file, "a") as f:
+        f.write(json.dumps(training_example) + "\n")
 
 
 @app.route("/model_status", methods=["GET"])

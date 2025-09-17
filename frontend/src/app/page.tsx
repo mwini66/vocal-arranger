@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import AudioPlayer from "../components/ui/AudioPlayer";
+import FeedbackModal, { ComprehensiveFeedback } from "../components/ui/FeedbackModal";
 
 // Interface for segment features - extracted from AIVocalArranger since we only need the type
 export interface EnhancedSegmentFeature {
@@ -68,6 +69,10 @@ export default function Home() {
   const [isArranging, setIsArranging] = useState<boolean>(false);
   const [selectedGenre, setSelectedGenre] = useState<string>("");
   const [modelStatus, setModelStatus] = useState<any>(null);
+  const [showFeedbackModal, setShowFeedbackModal] = useState<boolean>(false);
+  const [originalSegments, setOriginalSegments] = useState<EnhancedSegmentFeature[] | null>(null);
+  const [aiAnalysisData, setAiAnalysisData] = useState<any>(null);
+  const [sessionId] = useState<string>(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
   const audioChunks = useRef<Blob[]>([]);
   const vocalsInputRef = useRef<HTMLInputElement>(null);
   const referenceInputRef = useRef<HTMLInputElement>(null);
@@ -168,6 +173,8 @@ export default function Home() {
       setSegments(data.segments);
       // Store the vocals path for later use
       sessionStorage.setItem('inputVocalsPath', data.vocals_path);
+      // Store original segments for feedback
+      setOriginalSegments([...data.segments]);
 
     } catch (err) {
       setError("Failed to process input vocals");
@@ -248,6 +255,13 @@ export default function Home() {
       // Update segments with the arranged version
       setSegments(data.arranged_segments);
 
+      // Store AI analysis data for feedback
+      setAiAnalysisData({
+        original_arrangement: data.original_arrangement,
+        ai_analysis: data.ai_analysis,
+        reference_structure: data.reference_structure
+      });
+
       // Set alignment result with the arrangement info
       setAlignmentResult({
         aligned_segments: data.arranged_segments,
@@ -279,6 +293,29 @@ export default function Home() {
       setModelStatus(status);
     } catch (err) {
       console.error("Failed to get model status:", err);
+    }
+  };
+
+  // Handle feedback submission
+  const handleFeedbackSubmit = async (feedback: ComprehensiveFeedback) => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+      const response = await fetch(`${apiUrl}/arrangement/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(feedback)
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        console.log("Feedback submitted successfully:", result.feedback_id);
+        // Show success message or handle success
+      } else {
+        console.error("Failed to submit feedback:", result.error);
+      }
+    } catch (error) {
+      console.error("Error submitting feedback:", error);
     }
   };
 
@@ -393,7 +430,7 @@ export default function Home() {
       <div className="max-w-2xl mx-auto mb-8">
         <div className="bg-gray-800 p-6 rounded-2xl shadow-lg">
           <h2 className="text-xl font-semibold mb-4 text-teal-300">
-            2. Upload Reference Track (Optional)
+            2. Upload Reference Track
           </h2>
 
           <div className="mb-4">
@@ -584,15 +621,24 @@ export default function Home() {
 
             {/* Download Button */}
             <div className="text-center mb-4">
-              <a
-                href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}${alignmentResult.aligned_audio_path}`}
-                download="ai_arranged_vocals.wav"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-bold text-lg transition-colors"
-              >
-                📥 Download Arranged Vocals
-              </a>
+              <div className="flex gap-4 justify-center">
+                <a
+                  href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}${alignmentResult.aligned_audio_path}`}
+                  download="ai_arranged_vocals.wav"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-bold text-lg transition-colors"
+                >
+                  📥 Download Arranged Vocals
+                </a>
+
+                <button
+                  onClick={() => setShowFeedbackModal(true)}
+                  className="inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-bold text-lg transition-colors"
+                >
+                  ⭐ Rate This Arrangement
+                </button>
+              </div>
             </div>
 
             {/* Arrangement Statistics */}
@@ -653,6 +699,24 @@ export default function Home() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Feedback Modal */}
+      {showFeedbackModal && alignmentResult && originalSegments && aiAnalysisData && (
+        <FeedbackModal
+          isOpen={showFeedbackModal}
+          onClose={() => setShowFeedbackModal(false)}
+          onSubmit={handleFeedbackSubmit}
+          arrangementData={{
+            original_segments: originalSegments,
+            arranged_segments: alignmentResult.aligned_segments,
+            ai_analysis: aiAnalysisData.ai_analysis,
+            reference_segments: referenceSegments || undefined,
+            genre: selectedGenre,
+            reference_structure: aiAnalysisData.reference_structure
+          }}
+          sessionId={sessionId}
+        />
       )}
     </main>
   );

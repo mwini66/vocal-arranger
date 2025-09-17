@@ -52,7 +52,8 @@ class OpenRouterClient:
             payload = {
                 "model": self.model,
                 "messages": [
-                    {"role": "system", "content": "You are a professional music arranger who specializes in vocal arrangement and song structure."},
+                    {"role": "system",
+                     "content": "You are a professional music arranger who specializes in vocal arrangement and song structure."},
                     {"role": "user", "content": prompt}
                 ],
                 "max_tokens": max_tokens,

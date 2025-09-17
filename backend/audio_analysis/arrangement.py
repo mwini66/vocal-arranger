@@ -20,7 +20,8 @@ class AIVocalArranger:
         self.structure_templates = {
             "standard_pop": ["intro", "verse", "chorus", "verse", "chorus", "bridge", "chorus", "outro"],
             "hip_hop": ["intro", "verse", "hook", "verse", "hook", "bridge", "hook", "outro"],
-            "rnb": ["intro", "verse", "pre_chorus", "chorus", "verse", "pre_chorus", "chorus", "bridge", "chorus", "outro"],
+            "rnb": ["intro", "verse", "pre_chorus", "chorus", "verse", "pre_chorus", "chorus", "bridge", "chorus",
+                    "outro"],
             "simple": ["intro", "verse", "chorus", "verse", "chorus", "outro"]
         }
 
@@ -48,7 +49,8 @@ class AIVocalArranger:
             fallback = list(range(len(segments)))
             return fallback, 0.3, {"error": str(e), "method": "fallback"}
 
-    def _get_llm_arrangement(self, segments: List[Dict], genre_hint: Optional[str] = None) -> Tuple[List[int], float, Dict]:
+    def _get_llm_arrangement(self, segments: List[Dict], genre_hint: Optional[str] = None) -> Tuple[
+        List[int], float, Dict]:
         """
         Get arrangement using LLM analysis of lyrics, energy, and mood.
         """
@@ -121,19 +123,29 @@ class AIVocalArranger:
 
     def _categorize_energy(self, energy: float) -> str:
         """Categorize energy level."""
-        if energy > 0.75: return "very high energy"
-        elif energy > 0.6: return "high energy"
-        elif energy > 0.4: return "moderate energy"
-        elif energy > 0.25: return "low energy"
-        else: return "very low energy"
+        if energy > 0.75:
+            return "very high energy"
+        elif energy > 0.6:
+            return "high energy"
+        elif energy > 0.4:
+            return "moderate energy"
+        elif energy > 0.25:
+            return "low energy"
+        else:
+            return "very low energy"
 
     def _categorize_pitch(self, pitch: float) -> str:
         """Categorize pitch level."""
-        if pitch > 0.75: return "very high pitch"
-        elif pitch > 0.6: return "high pitch"
-        elif pitch > 0.4: return "mid-range pitch"
-        elif pitch > 0.25: return "low pitch"
-        else: return "very low pitch"
+        if pitch > 0.75:
+            return "very high pitch"
+        elif pitch > 0.6:
+            return "high pitch"
+        elif pitch > 0.4:
+            return "mid-range pitch"
+        elif pitch > 0.25:
+            return "low pitch"
+        else:
+            return "very low pitch"
 
     def _detect_intro(self, text: str, index: int, total: int) -> bool:
         """Detect if segment is likely an intro."""
@@ -273,7 +285,7 @@ Focus on creating natural flow and energy progression."""
         }
 
     def arrange_segments_to_reference(self, input_segments: List[Dict], reference_segments: List[Dict],
-                                     genre_hint: Optional[str] = None) -> Tuple[List[int], float, Dict]:
+                                      genre_hint: Optional[str] = None) -> Tuple[List[int], float, Dict]:
         """
         Arrange input vocal segments to match the structure and energy flow of reference segments.
         Uses LLM to analyze both sets and create optimal arrangement.
@@ -292,7 +304,7 @@ Focus on creating natural flow and energy progression."""
             return fallback, 0.3, {"error": str(e), "method": "fallback"}
 
     def _get_llm_reference_arrangement(self, input_segments: List[Dict], reference_segments: List[Dict],
-                                      genre_hint: Optional[str] = None) -> Tuple[List[int], float, Dict]:
+                                       genre_hint: Optional[str] = None) -> Tuple[List[int], float, Dict]:
         """
         Use LLM to arrange input segments to match reference track structure.
         """
@@ -350,8 +362,8 @@ Focus on creating natural flow and energy progression."""
         return descriptions
 
     def _create_reference_arrangement_prompt(self, input_descriptions: List[str],
-                                           reference_descriptions: List[str],
-                                           genre_hint: Optional[str] = None) -> str:
+                                             reference_descriptions: List[str],
+                                             genre_hint: Optional[str] = None) -> str:
         """
         Create LLM prompt for arranging input segments to match reference structure.
         """
@@ -398,7 +410,8 @@ Focus on creating an arrangement that captures the reference track's energy and 
 
         return prompt
 
-    def _parse_reference_arrangement_response(self, response: str, num_input_segments: int) -> Tuple[List[int], float, Dict]:
+    def _parse_reference_arrangement_response(self, response: str, num_input_segments: int) -> Tuple[
+        List[int], float, Dict]:
         """
         Parse LLM response for reference-based arrangement.
         """

@@ -133,7 +133,8 @@ def extract_segment_features(audio_path, segments):
             energy_variance = 0.0
 
         # Normalized energy (0-1 scale relative to global audio)
-        energy = max(0.0, min(1.0, (raw_energy - global_energy_mean) / (global_energy_std * 2) + 0.5)) if global_energy_std > 0 else 0.5
+        energy = max(0.0, min(1.0, (raw_energy - global_energy_mean) / (
+                    global_energy_std * 2) + 0.5)) if global_energy_std > 0 else 0.5
 
         # Raw pitch
         if y_seg.size > 0:
@@ -146,7 +147,8 @@ def extract_segment_features(audio_path, segments):
             pitch_variance = 0.0
 
         # Normalized pitch (0-1 scale)
-        pitch = max(0.0, min(1.0, (raw_pitch - global_pitch_mean) / (global_pitch_std * 2) + 0.5)) if global_pitch_std > 0 else 0.5
+        pitch = max(0.0, min(1.0, (raw_pitch - global_pitch_mean) / (
+                    global_pitch_std * 2) + 0.5)) if global_pitch_std > 0 else 0.5
 
         # Duration and timing
         duration = end - start
