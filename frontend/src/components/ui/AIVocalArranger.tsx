@@ -47,19 +47,11 @@ interface ArrangementResult {
   error?: string;
 }
 
-interface ArrangementComparisonResults {
-  results: {
-    [key: string]: ArrangementResult;
-  };
-  similarities: {
-    [key: string]: number;
-  };
-  methods_tested: string[];
-}
-
 interface AIVocalArrangerProps {
   segments: EnhancedSegmentFeature[];
   audioId: string;
+  onArrangementComplete?: (arrangement: number[], method: string) => void;
+  showReferenceAlignment?: boolean;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
@@ -74,30 +66,22 @@ const GENRE_OPTIONS = [
   { value: "electronic", label: "Electronic" }
 ];
 
-const STRUCTURE_OPTIONS = [
-  { value: "auto", label: "Auto-arrange" },
-  { value: "standard_pop", label: "Standard Pop" },
-  { value: "hip_hop", label: "Hip-Hop" },
-  { value: "rnb", label: "R&B" },
-  { value: "simple", label: "Simple" }
-];
-
-export const AIVocalArranger: React.FC<AIVocalArrangerProps> = ({ segments, audioId }) => {
+export const AIVocalArranger: React.FC<AIVocalArrangerProps> = ({
+  segments,
+  audioId,
+  onArrangementComplete,
+  showReferenceAlignment = false
+}) => {
   const [selectedGenre, setSelectedGenre] = useState("");
-  const [selectedStructure, setSelectedStructure] = useState("auto");
-  const [arrangements, setArrangements] = useState<ArrangementComparisonResults | null>(null);
-  const [selectedMethod, setSelectedMethod] = useState<string>("hybrid");
+  const [arrangementResult, setArrangementResult] = useState<ArrangementResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>("");
   const [modelStatus, setModelStatus] = useState<any>(null);
   const [userRating, setUserRating] = useState<number>(0);
-  const [customArrangement, setCustomArrangement] = useState<number[]>([]);
+  const [referenceFile, setReferenceFile] = useState<File | null>(null);
+  const [alignmentResult, setAlignmentResult] = useState<any>(null);
 
   useEffect(() => {
-    // Initialize custom arrangement with original order
-    setCustomArrangement(segments.map((_, i) => i));
-
-    // Load model status
     fetchModelStatus();
   }, [segments]);
 
@@ -111,106 +95,131 @@ export const AIVocalArranger: React.FC<AIVocalArrangerProps> = ({ segments, audi
     }
   };
 
-  const handleArrange = async () => {
+  const handleAIArrange = async () => {
     setIsLoading(true);
     setError("");
+    setArrangementResult(null);
 
     try {
-      const methods = ["hybrid"];
-      if (modelStatus?.models?.llm) methods.push("llm_only");
-      if (modelStatus?.models?.traditional_ml) methods.push("ml_only");
-
-      const response = await fetch(`${API_URL}/arrangement/compare`, {
+      const response = await fetch(`${API_URL}/arrange`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           segments,
-          methods,
           genre: selectedGenre || undefined
         })
       });
 
       if (!response.ok) {
-        throw new Error("Failed to get arrangements");
+        throw new Error("Failed to get AI arrangement");
       }
 
-      const data: ArrangementComparisonResults = await response.json();
-      setArrangements(data);
+      const data: ArrangementResult = await response.json();
+      setArrangementResult(data);
 
-      // Set the best arrangement as selected
-      const bestMethod = Object.keys(data.results)
-        .filter(method => !data.results[method].error)
-        .sort((a, b) => (data.results[b].confidence || 0) - (data.results[a].confidence || 0))[0];
-
-      if (bestMethod) {
-        setSelectedMethod(bestMethod);
+      if (onArrangementComplete && !data.error) {
+        onArrangementComplete(data.arrangement, data.method);
       }
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Arrangement failed");
+      setError(err instanceof Error ? err.message : "AI arrangement failed");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSingleMethodArrange = async (method: string) => {
+  const handleReferenceAlignment = async () => {
+    if (!referenceFile) {
+      setError("Please upload a reference track first");
+      return;
+    }
+
     setIsLoading(true);
     setError("");
+    setAlignmentResult(null);
 
     try {
-      let endpoint = "/arrange";
-      let payload: any = { segments, genre: selectedGenre || undefined };
-
-      if (method === "llm_only") {
-        endpoint = "/arrange/llm_only";
-      } else if (method === "ml_only") {
-        endpoint = "/arrange/ml_only";
-      } else {
-        payload.structure = selectedStructure;
+      const formData = new FormData();
+      formData.append("vocals", new File([], "vocals.wav")); // This would be the current vocals file
+      formData.append("reference", referenceFile);
+      if (selectedGenre) {
+        formData.append("genre", selectedGenre);
       }
 
-      const response = await fetch(`${API_URL}${endpoint}`, {
+      const response = await fetch(`${API_URL}/align_to_reference`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+        body: formData
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to get ${method} arrangement`);
+        throw new Error("Failed to align to reference");
+      }
+
+      const data = await response.json();
+      setAlignmentResult(data);
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Reference alignment failed");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCompleteWorkflow = async () => {
+    if (!referenceFile) {
+      setError("Please upload a reference track for the complete workflow");
+      return;
+    }
+
+    setIsLoading(true);
+    setError("");
+    setArrangementResult(null);
+    setAlignmentResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("vocals", new File([], "vocals.wav")); // This would be the current vocals file
+      formData.append("reference", referenceFile);
+      if (selectedGenre) {
+        formData.append("genre", selectedGenre);
+      }
+
+      const response = await fetch(`${API_URL}/arrange_and_align`, {
+        method: "POST",
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to complete arrangement and alignment workflow");
       }
 
       const data = await response.json();
 
-      // Create a single-method result that matches the comparison format
-      const singleResult: ArrangementComparisonResults = {
-        results: {
-          [method]: {
-            arrangement: data.arrangement,
-            confidence: data.confidence,
-            method: data.method,
-            analysis: data.analysis,
-            structure: data.structure
-          }
-        },
-        similarities: {},
-        methods_tested: [method]
-      };
+      // Set both arrangement and alignment results
+      if (data.ai_arrangement) {
+        setArrangementResult({
+          arrangement: data.ai_arrangement.arrangement,
+          confidence: data.ai_arrangement.confidence,
+          method: "ai_then_reference_aligned",
+          analysis: data.ai_arrangement.analysis
+        });
+      }
 
-      setArrangements(singleResult);
-      setSelectedMethod(method);
+      setAlignmentResult(data);
+
+      if (onArrangementComplete && data.ai_arrangement) {
+        onArrangementComplete(data.ai_arrangement.arrangement, "ai_then_reference_aligned");
+      }
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Arrangement failed");
+      setError(err instanceof Error ? err.message : "Complete workflow failed");
     } finally {
       setIsLoading(false);
     }
   };
 
   const submitFeedback = async () => {
-    if (!arrangements || !selectedMethod || userRating === 0) return;
-
-    const selectedResult = arrangements.results[selectedMethod];
-    if (!selectedResult || selectedResult.error) return;
+    if (!arrangementResult || userRating === 0) return;
 
     try {
       await fetch(`${API_URL}/arrangement/feedback`, {
@@ -218,15 +227,16 @@ export const AIVocalArranger: React.FC<AIVocalArrangerProps> = ({ segments, audi
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           audio_id: audioId,
-          arrangement_type: selectedMethod,
-          ordered_indices: selectedResult.arrangement,
-          score: selectedResult.confidence,
+          arrangement_type: arrangementResult.method,
+          ordered_indices: arrangementResult.arrangement,
+          score: arrangementResult.confidence,
           user_rating: userRating,
           segments: segments
         })
       });
 
       alert("Feedback submitted! This helps improve the AI.");
+      setUserRating(0);
     } catch (err) {
       console.error("Failed to submit feedback:", err);
     }
@@ -302,233 +312,201 @@ export const AIVocalArranger: React.FC<AIVocalArrangerProps> = ({ segments, audi
   };
 
   return (
-    <div className="w-full max-w-6xl mx-auto p-4">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="w-full max-w-6xl mx-auto p-6 bg-gray-800 text-white">
+      <div className="mb-6">
+        <h2 className="text-3xl font-bold mb-2 text-teal-400">AI Vocal Arranger</h2>
+        <p className="text-gray-300">
+          Intelligently arrange your vocal segments using AI analysis of lyrics, energy, and musical flow.
+          {showReferenceAlignment && " Optionally align to a reference track's timing."}
+        </p>
+      </div>
 
-        {/* Control Panel */}
-        <div className="lg:col-span-1">
-          <Card className="p-6 bg-gray-800 border-gray-700">
-            <h3 className="text-xl font-bold text-teal-400 mb-4">AI Arrangement Controls</h3>
+      {/* Genre Selection */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium mb-2">Genre (Optional)</label>
+        <select
+          value={selectedGenre}
+          onChange={(e) => setSelectedGenre(e.target.value)}
+          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500"
+        >
+          {GENRE_OPTIONS.map(option => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
 
-            {/* Genre Selection */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Genre Hint
-              </label>
-              <select
-                value={selectedGenre}
-                onChange={(e) => setSelectedGenre(e.target.value)}
-                className="w-full p-2 bg-gray-700 border border-gray-600 rounded text-white"
-              >
-                {GENRE_OPTIONS.map(option => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+      {/* Reference Track Upload (if enabled) */}
+      {showReferenceAlignment && (
+        <div className="mb-6">
+          <label className="block text-sm font-medium mb-2">Reference Track (Optional)</label>
+          <input
+            type="file"
+            accept="audio/*"
+            onChange={(e) => setReferenceFile(e.target.files?.[0] || null)}
+            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500"
+          />
+          {referenceFile && (
+            <p className="text-sm text-gray-400 mt-1">
+              Selected: {referenceFile.name}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div className="mb-6 flex flex-wrap gap-4">
+        <Button
+          onClick={handleAIArrange}
+          disabled={isLoading || segments.length === 0}
+          className="bg-teal-600 hover:bg-teal-700 disabled:opacity-50"
+        >
+          {isLoading ? "Processing..." : "AI Smart Arrange"}
+        </Button>
+
+        {showReferenceAlignment && (
+          <>
+            <Button
+              onClick={handleReferenceAlignment}
+              disabled={isLoading || !referenceFile}
+              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+            >
+              {isLoading ? "Processing..." : "Align to Reference Only"}
+            </Button>
+
+            <Button
+              onClick={handleCompleteWorkflow}
+              disabled={isLoading || !referenceFile}
+              className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50"
+            >
+              {isLoading ? "Processing..." : "AI Arrange + Reference Align"}
+            </Button>
+          </>
+        )}
+      </div>
+
+      {/* Model Status */}
+      {modelStatus && (
+        <div className="mb-6 p-4 bg-gray-700 rounded-lg">
+          <h3 className="text-lg font-semibold mb-2">System Status</h3>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <span className="text-gray-400">AI Model:</span>
+              <span className={`ml-2 ${modelStatus.models?.ai_llm ? 'text-green-400' : 'text-red-400'}`}>
+                {modelStatus.models?.ai_llm ? '✓ Available' : '✗ Unavailable'}
+              </span>
             </div>
-
-            {/* Structure Selection */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Song Structure
-              </label>
-              <select
-                value={selectedStructure}
-                onChange={(e) => setSelectedStructure(e.target.value)}
-                className="w-full p-2 bg-gray-700 border border-gray-600 rounded text-white"
-              >
-                {STRUCTURE_OPTIONS.map(option => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+            <div>
+              <span className="text-gray-400">Reference Alignment:</span>
+              <span className={`ml-2 ${modelStatus.services?.reference_alignment ? 'text-green-400' : 'text-red-400'}`}>
+                {modelStatus.services?.reference_alignment ? '✓ Available' : '✗ Unavailable'}
+              </span>
             </div>
+          </div>
+        </div>
+      )}
 
-            {/* Arrangement Methods */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Arrangement Methods
-              </label>
-              <div className="space-y-2">
-                <Button
-                  onClick={handleArrange}
-                  disabled={isLoading}
-                  className="w-full bg-teal-600 hover:bg-teal-700"
-                >
-                  {isLoading ? "Arranging..." : "Compare All Methods"}
-                </Button>
+      {/* Error Display */}
+      {error && (
+        <div className="mb-6 p-4 bg-red-900 border border-red-700 rounded-lg">
+          <p className="text-red-300">{error}</p>
+        </div>
+      )}
 
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    onClick={() => handleSingleMethodArrange("hybrid")}
-                    disabled={isLoading}
-                    variant="outline"
-                    className="text-xs"
+      {/* Arrangement Results */}
+      {arrangementResult && !arrangementResult.error && (
+        <div className="mb-6">
+          <h3 className="text-xl font-semibold mb-4 text-teal-400">
+            AI Arrangement Result ({arrangementResult.method})
+          </h3>
+
+          <div className="mb-4 p-4 bg-gray-700 rounded-lg">
+            <div className="flex justify-between items-center">
+              <span>Confidence: {(arrangementResult.confidence * 100).toFixed(1)}%</span>
+              {arrangementResult.analysis?.reasoning && (
+                <span className="text-sm text-gray-400 max-w-md">
+                  {arrangementResult.analysis.reasoning}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="grid gap-4">
+            <h4 className="text-lg font-medium">Arranged Segments:</h4>
+            {arrangementResult.arrangement.map((segmentIndex, position) =>
+              renderSegmentCard(segmentIndex, position)
+            )}
+          </div>
+
+          {/* User Feedback */}
+          <div className="mt-6 p-4 bg-gray-700 rounded-lg">
+            <h4 className="text-lg font-medium mb-3">Rate this arrangement (1-5 stars):</h4>
+            <div className="flex items-center gap-4">
+              <div className="flex gap-1">
+                {[1, 2, 3, 4, 5].map(rating => (
+                  <button
+                    key={rating}
+                    onClick={() => setUserRating(rating)}
+                    className={`text-2xl ${
+                      userRating >= rating ? 'text-yellow-400' : 'text-gray-500'
+                    } hover:text-yellow-300`}
                   >
-                    Hybrid AI
-                  </Button>
-
-                  {modelStatus?.models?.llm && (
-                    <Button
-                      onClick={() => handleSingleMethodArrange("llm_only")}
-                      disabled={isLoading}
-                      variant="outline"
-                      className="text-xs"
-                    >
-                      LLM Only
-                    </Button>
-                  )}
-
-                  {modelStatus?.models?.traditional_ml && (
-                    <Button
-                      onClick={() => handleSingleMethodArrange("ml_only")}
-                      disabled={isLoading}
-                      variant="outline"
-                      className="text-xs"
-                    >
-                      ML Only
-                    </Button>
-                  )}
-                </div>
+                    ★
+                  </button>
+                ))}
               </div>
-            </div>
-
-            {/* Model Status */}
-            {modelStatus && (
-              <div className="mb-4 text-xs">
-                <div className="text-gray-400 mb-1">Available Models:</div>
-                <div className="space-y-1">
-                  <div className={`flex items-center ${modelStatus.models?.llm ? 'text-green-400' : 'text-red-400'}`}>
-                    • LLM: {modelStatus.models?.llm ? 'Ready' : 'Unavailable'}
-                  </div>
-                  <div className={`flex items-center ${modelStatus.models?.traditional_ml ? 'text-green-400' : 'text-red-400'}`}>
-                    • ML Model: {modelStatus.models?.traditional_ml ? 'Ready' : 'Unavailable'}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Error Display */}
-            {error && (
-              <div className="mb-4 p-2 bg-red-900 border border-red-600 rounded text-red-200 text-sm">
-                {error}
-              </div>
-            )}
-
-            {/* User Feedback */}
-            {arrangements && selectedMethod && (
-              <div className="border-t border-gray-600 pt-4">
-                <div className="text-sm font-medium text-gray-300 mb-2">
-                  Rate this arrangement:
-                </div>
-                <div className="flex gap-1 mb-2">
-                  {[1, 2, 3, 4, 5].map(rating => (
-                    <button
-                      key={rating}
-                      onClick={() => setUserRating(rating)}
-                      className={`w-6 h-6 text-sm ${
-                        rating <= userRating ? 'text-yellow-400' : 'text-gray-600'
-                      }`}
-                    >
-                      ★
-                    </button>
-                  ))}
-                </div>
+              {userRating > 0 && (
                 <Button
                   onClick={submitFeedback}
-                  disabled={userRating === 0}
-                  variant="outline"
-                  className="w-full text-xs"
+                  className="bg-green-600 hover:bg-green-700"
+                  size="sm"
                 >
                   Submit Feedback
                 </Button>
-              </div>
-            )}
-          </Card>
+              )}
+            </div>
+          </div>
         </div>
+      )}
 
-        {/* Arrangement Results */}
-        <div className="lg:col-span-2">
-          {arrangements && (
-            <div className="space-y-4">
-              {/* Method Selector */}
-              <div className="flex gap-2 mb-4">
-                {Object.keys(arrangements.results).map(method => (
-                  <Button
-                    key={method}
-                    onClick={() => setSelectedMethod(method)}
-                    variant={selectedMethod === method ? "default" : "outline"}
-                    className={`text-xs ${
-                      arrangements.results[method].error ? 'opacity-50' : ''
-                    }`}
-                    disabled={!!arrangements.results[method].error}
-                  >
-                    {method.replace('_', ' ').toUpperCase()}
-                    {arrangements.results[method].confidence && (
-                      <span className="ml-1 text-xs">
-                        ({(arrangements.results[method].confidence * 100).toFixed(0)}%)
-                      </span>
-                    )}
-                  </Button>
-                ))}
-              </div>
+      {/* Alignment Results */}
+      {alignmentResult && (
+        <div className="mb-6">
+          <h3 className="text-xl font-semibold mb-4 text-blue-400">
+            Reference Alignment Result
+          </h3>
 
-              {/* Selected Arrangement Display */}
-              {selectedMethod && arrangements.results[selectedMethod] && !arrangements.results[selectedMethod].error && (
-                <div>
-                  <h4 className="text-lg font-semibold text-white mb-4">
-                    {selectedMethod.replace('_', ' ').toUpperCase()} Arrangement
-                    <span className="text-sm text-teal-400 ml-2">
-                      (Confidence: {((arrangements.results[selectedMethod].confidence || 0) * 100).toFixed(0)}%)
-                    </span>
-                  </h4>
-
-                  <div className="grid gap-2">
-                    {arrangements.results[selectedMethod].arrangement.map((segmentIndex, position) =>
-                      renderSegmentCard(segmentIndex, position)
-                    )}
-                  </div>
-
-                  {/* Analysis Display */}
-                  {arrangements.results[selectedMethod].analysis && (
-                    <Card className="mt-4 p-4 bg-gray-800 border-gray-600">
-                      <h5 className="font-medium text-teal-400 mb-2">AI Analysis</h5>
-                      <div className="text-sm text-gray-300">
-                        {arrangements.results[selectedMethod].analysis.reasoning ||
-                         "Analysis data available"}
-                      </div>
-                    </Card>
-                  )}
-                </div>
-              )}
-
-              {/* Error Display for Selected Method */}
-              {selectedMethod && arrangements.results[selectedMethod]?.error && (
-                <Card className="p-4 bg-red-900 border-red-600">
-                  <div className="text-red-200">
-                    <strong>{selectedMethod.toUpperCase()} Error:</strong><br />
-                    {arrangements.results[selectedMethod].error}
-                  </div>
-                </Card>
-              )}
+          {alignmentResult.aligned_audio_url && (
+            <div className="mb-4">
+              <audio controls className="w-full">
+                <source src={`${API_URL}${alignmentResult.aligned_audio_url}`} type="audio/wav" />
+                Your browser does not support the audio element.
+              </audio>
             </div>
           )}
 
-          {/* Original Segments (when no arrangements yet) */}
-          {!arrangements && (
-            <div>
-              <h4 className="text-lg font-semibold text-white mb-4">
-                Original Segments ({segments.length} segments)
-              </h4>
-              <div className="grid gap-2">
-                {segments.map((segment, index) =>
-                  renderSegmentCard(index, index)
-                )}
+          {alignmentResult.alignment_info && (
+            <div className="p-4 bg-gray-700 rounded-lg">
+              <h4 className="font-medium mb-2">Alignment Statistics:</h4>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>Match Rate: {(alignmentResult.alignment_info.match_rate * 100).toFixed(1)}%</div>
+                <div>Average Similarity: {(alignmentResult.alignment_info.average_similarity * 100).toFixed(1)}%</div>
+                <div>Segments Matched: {alignmentResult.alignment_info.matched_segments}/{alignmentResult.alignment_info.total_reference_segments}</div>
+                <div>Segments Used: {alignmentResult.alignment_info.used_user_segments}/{alignmentResult.alignment_info.total_user_segments}</div>
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Original Segments Display */}
+      <div className="mb-6">
+        <h3 className="text-xl font-semibold mb-4 text-gray-400">
+          Original Segments ({segments.length})
+        </h3>
+        <div className="grid gap-4">
+          {segments.map((_, index) => renderSegmentCard(index, index))}
         </div>
       </div>
     </div>

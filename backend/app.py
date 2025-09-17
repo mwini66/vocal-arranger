@@ -70,18 +70,8 @@ def segment():
 @app.route("/arrange", methods=["POST"])
 def arrange():
     """
-    Arrange segments using AI/LLM analysis.
-    Expects JSON payload: {
-        "segments": [...],
-        "structure": "auto" | "standard_pop" | "hip_hop" | "rnb" | "simple" (optional),
-        "genre": "hip-hop" | "rnb" | "pop" | etc (optional)
-    }
-    Returns: {
-        "arrangement": [...],
-        "confidence": float,
-        "method": "ai_llm",
-        "analysis": {...}
-    }
+    Arrange segments using AI/LLM analysis based on content, energy, and flow.
+    This creates an intelligent ordering of segments without reference timing.
     """
     data = request.get_json()
     if not data or "segments" not in data:
@@ -99,10 +89,9 @@ def arrange():
         return jsonify({
             "arrangement": arrangement,
             "confidence": confidence,
-            "method": analysis.get("method", "ai_llm"),
+            "method": "ai_arrangement",
             "analysis": analysis,
-            "structure": target_structure,
-            "genre": genre_hint
+            "structure": analysis.get('sections', {})
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -398,103 +387,36 @@ def process_reference():
 @app.route("/align/to_reference", methods=["POST"])
 def align_to_reference():
     """
-    Align user vocals to match reference track timing and sequence.
-    Expects JSON payload: {
-        "user_segments": [...],
-        "reference_segments": [...],
-        "user_audio_path": "path/to/user/audio",
-        "create_audio": true (optional, default false)
-    }
-    Returns: {
-        "aligned_segments": [...],
-        "alignment_info": {...},
-        "aligned_audio_path": "..." (if create_audio=true)
-    }
-    """
-    data = request.get_json()
-    if not data or "user_segments" not in data or "reference_segments" not in data:
-        return jsonify({"error": "Missing user_segments or reference_segments in request"}), 400
-
-    user_segments = data["user_segments"]
-    reference_segments = data["reference_segments"]
-    user_audio_path = data.get("user_audio_path")
-    create_audio = data.get("create_audio", False)
-
-    try:
-        # Perform alignment
-        aligned_segments, alignment_info = reference_aligner.align_to_reference(
-            user_segments, reference_segments
-        )
-
-        response = {
-            "aligned_segments": aligned_segments,
-            "alignment_info": alignment_info,
-            "method": "reference_alignment"
-        }
-
-        # Optionally create aligned audio file
-        if create_audio and user_audio_path:
-            if not os.path.exists(user_audio_path):
-                return jsonify({"error": f"User audio file not found: {user_audio_path}"}), 400
-
-            # Generate unique output filename
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_filename = f"aligned_{timestamp}.wav"
-            output_path = os.path.join(ALIGNED_FOLDER, output_filename)
-
-            aligned_audio_path = reference_aligner.create_aligned_audio(
-                user_audio_path, aligned_segments, output_path
-            )
-
-            response["aligned_audio_path"] = f"/aligned/{output_filename}"
-            response["aligned_audio_full_path"] = aligned_audio_path
-
-        return jsonify(response), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/process_with_reference", methods=["POST"])
-def process_with_reference():
-    """
-    Complete workflow: process both user vocals and reference, then align.
-    Accepts multipart/form-data with 'vocals' and 'reference' files.
-    Returns: {
-        "user_segments": [...],
-        "reference_segments": [...],
-        "aligned_segments": [...],
-        "alignment_info": {...},
-        "aligned_audio_path": "..."
-    }
+    Align user vocal segments to match a reference track's timing and sequence.
+    This preserves audio quality by placing segments without time-stretching.
     """
     if "vocals" not in request.files or "reference" not in request.files:
-        return jsonify({"error": "Both vocals and reference files are required."}), 400
+        return jsonify({"error": "Both vocals and reference files are required"}), 400
 
     vocals = request.files["vocals"]
     reference = request.files["reference"]
 
-    # Save files
-    vocals_path = os.path.join(UPLOAD_FOLDER, vocals.filename)
-    reference_path = os.path.join(UPLOAD_FOLDER, f"ref_{reference.filename}")
+    vocals_path = os.path.join(UPLOAD_FOLDER, f"user_vocals_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav")
+    reference_path = os.path.join(UPLOAD_FOLDER, f"reference_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav")
+
     vocals.save(vocals_path)
     reference.save(reference_path)
 
     try:
-        # Process user vocals
-        user_segments_raw = transcribe_with_whisperx(vocals_path)
-        user_segments = extract_segment_features(vocals_path, user_segments_raw)
-
-        # Process reference track
+        # Process reference track to get timing segments
         reference_segments = reference_aligner.process_reference_track(reference_path)
 
-        # Perform alignment
+        # Process user vocals to get segments with features
+        user_segments = transcribe_with_whisperx(vocals_path)
+        user_features = extract_segment_features(vocals_path, user_segments)
+
+        # Align user segments to reference timing
         aligned_segments, alignment_info = reference_aligner.align_to_reference(
-            user_segments, reference_segments
+            user_features, reference_segments
         )
 
-        # Create aligned audio
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_filename = f"aligned_{timestamp}.wav"
+        # Create aligned audio file
+        output_filename = f"aligned_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
         output_path = os.path.join(ALIGNED_FOLDER, output_filename)
 
         aligned_audio_path = reference_aligner.create_aligned_audio(
@@ -502,12 +424,145 @@ def process_with_reference():
         )
 
         return jsonify({
-            "user_segments": user_segments,
+            "aligned_segments": aligned_segments,
+            "alignment_info": alignment_info,
+            "aligned_audio_url": f"/aligned/{output_filename}",
+            "method": "reference_alignment"
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/arrange_and_align", methods=["POST"])
+def arrange_and_align():
+    """
+    Complete workflow: AI arrange segments, then align to reference track timing.
+    This combines intelligent arrangement with reference-based timing.
+    """
+    if "vocals" not in request.files or "reference" not in request.files:
+        return jsonify({"error": "Both vocals and reference files are required"}), 400
+
+    vocals = request.files["vocals"]
+    reference = request.files["reference"]
+    genre_hint = request.form.get("genre")
+
+    vocals_path = os.path.join(UPLOAD_FOLDER, f"user_vocals_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav")
+    reference_path = os.path.join(UPLOAD_FOLDER, f"reference_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav")
+
+    vocals.save(vocals_path)
+    reference.save(reference_path)
+
+    try:
+        # Step 1: Segment and analyze user vocals
+        user_segments = transcribe_with_whisperx(vocals_path)
+        user_features = extract_segment_features(vocals_path, user_segments)
+
+        # Step 2: AI arrange segments based on content/energy
+        arrangement, confidence, analysis = ai_arranger.arrange_segments(
+            user_features, "auto", genre_hint
+        )
+
+        # Reorder user segments according to AI arrangement
+        arranged_segments = [user_features[i] for i in arrangement]
+
+        # Step 3: Process reference track
+        reference_segments = reference_aligner.process_reference_track(reference_path)
+
+        # Step 4: Align arranged segments to reference timing
+        aligned_segments, alignment_info = reference_aligner.align_to_reference(
+            arranged_segments, reference_segments
+        )
+
+        # Step 5: Create final aligned audio
+        output_filename = f"arranged_aligned_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+        output_path = os.path.join(ALIGNED_FOLDER, output_filename)
+
+        # Create temporary audio with arranged segments for alignment
+        temp_arranged_path = os.path.join(UPLOAD_FOLDER, f"temp_arranged_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav")
+
+        # For now, use original vocals path - in production you'd create arranged audio first
+        aligned_audio_path = reference_aligner.create_aligned_audio(
+            vocals_path, aligned_segments, output_path
+        )
+
+        return jsonify({
+            "original_segments": user_features,
+            "ai_arrangement": {
+                "arrangement": arrangement,
+                "confidence": confidence,
+                "analysis": analysis
+            },
+            "aligned_segments": aligned_segments,
+            "alignment_info": alignment_info,
+            "aligned_audio_url": f"/aligned/{output_filename}",
+            "method": "ai_arrangement_then_reference_alignment"
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/process_with_reference", methods=["POST"])
+def process_with_reference():
+    """
+    Complete workflow: Segment vocals, AI arrange, then align to reference track.
+    This is the main endpoint called by the frontend's "Process & Align to Reference" button.
+    """
+    if "vocals" not in request.files or "reference" not in request.files:
+        return jsonify({"error": "Both vocals and reference files are required"}), 400
+
+    vocals = request.files["vocals"]
+    reference = request.files["reference"]
+    genre_hint = request.form.get("genre")
+
+    vocals_path = os.path.join(UPLOAD_FOLDER, f"user_vocals_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav")
+    reference_path = os.path.join(UPLOAD_FOLDER, f"reference_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav")
+
+    vocals.save(vocals_path)
+    reference.save(reference_path)
+
+    try:
+        # Step 1: Segment and analyze user vocals
+        user_segments = transcribe_with_whisperx(vocals_path)
+        user_features = extract_segment_features(vocals_path, user_segments)
+
+        # Step 2: Process reference track
+        reference_segments = reference_aligner.process_reference_track(reference_path)
+
+        # Step 3: AI arrange user segments based on content/energy
+        arrangement, confidence, analysis = ai_arranger.arrange_segments(
+            user_features, "auto", genre_hint
+        )
+
+        # Reorder user segments according to AI arrangement
+        arranged_segments = [user_features[i] for i in arrangement]
+
+        # Step 4: Align arranged segments to reference timing
+        aligned_segments, alignment_info = reference_aligner.align_to_reference(
+            arranged_segments, reference_segments
+        )
+
+        # Step 5: Create final aligned audio
+        output_filename = f"processed_aligned_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+        output_path = os.path.join(ALIGNED_FOLDER, output_filename)
+
+        aligned_audio_path = reference_aligner.create_aligned_audio(
+            vocals_path, aligned_segments, output_path
+        )
+
+        return jsonify({
+            "user_segments": user_features,
             "reference_segments": reference_segments,
+            "ai_arrangement": {
+                "arrangement": arrangement,
+                "confidence": confidence,
+                "analysis": analysis
+            },
             "aligned_segments": aligned_segments,
             "alignment_info": alignment_info,
             "aligned_audio_path": f"/aligned/{output_filename}",
-            "method": "complete_reference_alignment"
+            "method": "complete_workflow"
         }), 200
 
     except Exception as e:
