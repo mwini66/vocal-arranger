@@ -569,5 +569,122 @@ def process_with_reference():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/process_vocals", methods=["POST"])
+def process_vocals():
+    """
+    Step 1: Process input vocals - segment and extract features for arrangement.
+    This is the main vocals processing endpoint.
+    """
+    if "vocals" not in request.files:
+        return jsonify({"error": "Vocals file is required."}), 400
+
+    vocals = request.files["vocals"]
+    vocals_path = os.path.join(UPLOAD_FOLDER, f"input_vocals_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav")
+    vocals.save(vocals_path)
+
+    try:
+        # Transcribe with WhisperX
+        segments = transcribe_with_whisperx(vocals_path)
+
+        # Extract enhanced features for AI analysis
+        segment_features = extract_segment_features(vocals_path, segments)
+
+        return jsonify({
+            "segments": segment_features,
+            "vocals_path": vocals_path,
+            "total_segments": len(segment_features),
+            "method": "whisperx_analysis"
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/process_reference", methods=["POST"])
+def process_reference_vocals():
+    """
+    Step 2: Process reference vocals - segment and extract features for timing/energy reference.
+    This analyzes the reference track structure.
+    """
+    if "reference" not in request.files:
+        return jsonify({"error": "Reference file is required."}), 400
+
+    reference = request.files["reference"]
+    reference_path = os.path.join(UPLOAD_FOLDER, f"reference_vocals_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav")
+    reference.save(reference_path)
+
+    try:
+        # Transcribe reference with WhisperX
+        segments = transcribe_with_whisperx(reference_path)
+
+        # Extract enhanced features for reference structure
+        segment_features = extract_segment_features(reference_path, segments)
+
+        return jsonify({
+            "reference_segments": segment_features,
+            "reference_path": reference_path,
+            "total_segments": len(segment_features),
+            "method": "reference_analysis"
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/arrange_to_reference", methods=["POST"])
+def arrange_to_reference():
+    """
+    Step 3: Use LLM to arrange input vocals segments to match reference track structure.
+    Takes processed input segments and reference segments, uses AI to create optimal arrangement.
+    """
+    data = request.get_json()
+    if not data or "input_segments" not in data or "reference_segments" not in data:
+        return jsonify({"error": "Both input_segments and reference_segments are required"}), 400
+
+    input_segments = data["input_segments"]
+    reference_segments = data["reference_segments"]
+    input_vocals_path = data.get("input_vocals_path")
+    genre_hint = data.get("genre")
+
+    try:
+        # Step 1: Get AI arrangement based on reference structure
+        arrangement, confidence, analysis = ai_arranger.arrange_segments_to_reference(
+            input_segments, reference_segments, genre_hint
+        )
+
+        # Step 2: Reorder input segments according to AI arrangement
+        arranged_segments = [input_segments[i] for i in arrangement]
+
+        # Step 3: Create aligned audio if input vocals path provided
+        aligned_audio_path = None
+        if input_vocals_path:
+            output_filename = f"arranged_to_reference_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+            output_path = os.path.join(ALIGNED_FOLDER, output_filename)
+
+            # Create arranged audio based on new segment order
+            aligned_audio_path = reference_aligner.create_arranged_audio(
+                input_vocals_path, arranged_segments, output_path
+            )
+
+        return jsonify({
+            "arranged_segments": arranged_segments,
+            "original_arrangement": arrangement,
+            "ai_analysis": {
+                "confidence": confidence,
+                "reasoning": analysis.get("reasoning", ""),
+                "method": "llm_reference_arrangement"
+            },
+            "reference_structure": {
+                "total_reference_segments": len(reference_segments),
+                "matched_segments": len([s for s in arranged_segments if s]),
+                "energy_progression": [s.get("energy", 0) for s in reference_segments],
+                "timing_structure": [s.get("duration", 0) for s in reference_segments]
+            },
+            "arranged_audio_url": f"/aligned/{output_filename}" if aligned_audio_path else None,
+            "method": "ai_reference_arrangement"
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     app.run(debug=True)

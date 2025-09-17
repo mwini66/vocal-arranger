@@ -337,3 +337,68 @@ class ReferenceAligner:
         except Exception as e:
             logger.error(f"Failed to create aligned audio: {e}")
             raise
+
+    def create_arranged_audio(self, input_vocals_path: str, arranged_segments: List[Dict], output_path: str) -> str:
+        """
+        Create audio file from arranged segments.
+
+        Args:
+            input_vocals_path: Path to original input vocals audio
+            arranged_segments: List of segments in the desired order
+            output_path: Path where to save the arranged audio
+
+        Returns:
+            Path to created audio file
+        """
+        try:
+            # Load original audio
+            audio, sr = librosa.load(input_vocals_path, sr=None)
+
+            # Create silence buffer for gaps
+            silence_duration = 0.5  # 500ms silence between segments
+            silence_samples = int(silence_duration * sr)
+            silence = np.zeros(silence_samples)
+
+            # Extract and concatenate segments
+            arranged_audio = []
+
+            for segment in arranged_segments:
+                if segment is None:
+                    # Add silence for missing segments
+                    arranged_audio.append(silence)
+                    continue
+
+                start_time = segment.get('start', 0)
+                end_time = segment.get('end', start_time + 3)  # Default 3s segment
+
+                start_sample = int(start_time * sr)
+                end_sample = int(end_time * sr)
+
+                # Extract segment audio (with bounds checking)
+                start_sample = max(0, start_sample)
+                end_sample = min(len(audio), end_sample)
+
+                if start_sample < end_sample:
+                    segment_audio = audio[start_sample:end_sample]
+                    arranged_audio.append(segment_audio)
+
+                # Add silence between segments (except for last segment)
+                if segment != arranged_segments[-1]:
+                    arranged_audio.append(silence)
+
+            # Concatenate all audio segments
+            if arranged_audio:
+                final_audio = np.concatenate(arranged_audio)
+
+                # Save arranged audio
+                import soundfile as sf
+                sf.write(output_path, final_audio, sr)
+
+                logger.info(f"Created arranged audio: {output_path}")
+                return output_path
+            else:
+                raise Exception("No valid audio segments to arrange")
+
+        except Exception as e:
+            logger.error(f"Failed to create arranged audio: {e}")
+            raise

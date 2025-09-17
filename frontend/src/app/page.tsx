@@ -24,7 +24,6 @@ export default function Home() {
   const [segments, setSegments] = useState<EnhancedSegmentFeature[] | null>(null);
   const [referenceSegments, setReferenceSegments] = useState<EnhancedSegmentFeature[] | null>(null);
   const [alignmentResult, setAlignmentResult] = useState<ReferenceAlignment | null>(null);
-  const [processingMode, setProcessingMode] = useState<'standard' | 'reference'>('standard');
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState<boolean>(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
@@ -32,9 +31,20 @@ export default function Home() {
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isReferenceLoading, setIsReferenceLoading] = useState<boolean>(false);
+  const [selectedGenre, setSelectedGenre] = useState<string>("");
   const audioChunks = useRef<Blob[]>([]);
   const vocalsInputRef = useRef<HTMLInputElement>(null);
   const referenceInputRef = useRef<HTMLInputElement>(null);
+
+  const GENRE_OPTIONS = [
+    { value: "", label: "Auto-detect" },
+    { value: "pop", label: "Pop" },
+    { value: "hip-hop", label: "Hip-Hop" },
+    { value: "rnb", label: "R&B" },
+    { value: "rock", label: "Rock" },
+    { value: "folk", label: "Folk" },
+    { value: "electronic", label: "Electronic" }
+  ];
 
   // Start recording
   const startRecording = async () => {
@@ -87,10 +97,10 @@ export default function Home() {
     }
   };
 
-  // Process vocals and extract enhanced features
-  const handleProcessVocals = async () => {
+  // Step 1 - Process input vocals
+  const handleProcessInputVocals = async () => {
     if (!vocalsFile) {
-      setError("Please upload or record a vocals file.");
+      setError("Please upload a vocals file first.");
       return;
     }
     setIsLoading(true);
@@ -102,8 +112,7 @@ export default function Home() {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
-      // Upload vocals and get enhanced segment features
-      const response = await fetch(`${apiUrl}/segment`, {
+      const response = await fetch(`${apiUrl}/process_vocals`, {
         method: "POST",
         body: formData,
       });
@@ -111,69 +120,25 @@ export default function Home() {
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.error || "Segmentation failed");
+        setError(data.error || "Input vocals processing failed");
         return;
       }
 
-      // The enhanced extract_segment_features now returns all the features we need
       setSegments(data.segments);
+      // Store the vocals path for later use
+      sessionStorage.setItem('inputVocalsPath', data.vocals_path);
 
     } catch (err) {
-      setError("Failed to connect to backend. Is the server running at " + (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000") + "?");
+      setError("Failed to process input vocals");
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Process with reference track (complete workflow)
-  const handleProcessWithReference = async () => {
-    if (!vocalsFile || !referenceFile) {
-      setError("Please upload both vocals and reference track files.");
-      return;
-    }
-    setIsReferenceLoading(true);
-    setError(null);
-
-    const formData = new FormData();
-    formData.append("vocals", vocalsFile);
-    formData.append("reference", referenceFile);
-
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
-
-      // Complete workflow: process both files and align
-      const response = await fetch(`${apiUrl}/process_with_reference`, {
-        method: "POST",
-        body: formData,
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.error || "Reference alignment failed");
-        return;
-      }
-
-      // Set all the results
-      setSegments(data.user_segments);
-      setReferenceSegments(data.reference_segments);
-      setAlignmentResult({
-        aligned_segments: data.aligned_segments,
-        alignment_info: data.alignment_info,
-        aligned_audio_path: data.aligned_audio_path
-      });
-
-    } catch (err) {
-      setError("Failed to connect to backend. Is the server running at " + (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000") + "?");
-    } finally {
-      setIsReferenceLoading(false);
-    }
-  };
-
-  // Process reference track only
-  const handleProcessReference = async () => {
+  // Step 2 - Process reference vocals
+  const handleProcessReferenceVocals = async () => {
     if (!referenceFile) {
-      setError("Please upload a reference track.");
+      setError("Please upload a reference track first.");
       return;
     }
     setIsLoading(true);
@@ -185,8 +150,7 @@ export default function Home() {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
-      // Process reference track
-      const response = await fetch(`${apiUrl}/reference/process`, {
+      const response = await fetch(`${apiUrl}/process_reference`, {
         method: "POST",
         body: formData,
       });
@@ -199,52 +163,69 @@ export default function Home() {
       }
 
       setReferenceSegments(data.reference_segments);
-
-      // If we already have user segments, perform alignment
-      if (segments && segments.length > 0) {
-        await performAlignment(segments, data.reference_segments);
-      }
+      // Store the reference path for later use
+      sessionStorage.setItem('referencePath', data.reference_path);
 
     } catch (err) {
-      setError("Failed to connect to backend. Is the server running at " + (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000") + "?");
+      setError("Failed to process reference vocals");
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Perform alignment between user and reference segments
-  const performAlignment = async (userSegments: EnhancedSegmentFeature[], refSegments: EnhancedSegmentFeature[]) => {
+  // Step 3 - AI Arrange to match reference
+  const handleArrangeToReference = async () => {
+    if (!segments || !referenceSegments) {
+      setError("Please process both input vocals and reference track first.");
+      return;
+    }
+    setIsReferenceLoading(true);
+    setError(null);
+
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+      const inputVocalsPath = sessionStorage.getItem('inputVocalsPath');
 
-      const response = await fetch(`${apiUrl}/align/to_reference`, {
+      const response = await fetch(`${apiUrl}/arrange_to_reference`, {
         method: "POST",
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_segments: userSegments,
-          reference_segments: refSegments,
-          user_audio_path: vocalsFile ? `uploads/audio/${vocalsFile.name}` : null,
-          create_audio: true
-        }),
+          input_segments: segments,
+          reference_segments: referenceSegments,
+          input_vocals_path: inputVocalsPath,
+          genre: selectedGenre || undefined
+        })
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.error || "Alignment failed");
+        setError(data.error || "Arrangement to reference failed");
         return;
       }
 
+      // Update segments with the arranged version
+      setSegments(data.arranged_segments);
+
+      // Set alignment result with the arrangement info
       setAlignmentResult({
-        aligned_segments: data.aligned_segments,
-        alignment_info: data.alignment_info,
-        aligned_audio_path: data.aligned_audio_path
+        aligned_segments: data.arranged_segments,
+        alignment_info: {
+          total_reference_segments: data.reference_structure?.total_reference_segments || 0,
+          matched_segments: data.reference_structure?.matched_segments || 0,
+          match_rate: data.ai_analysis?.confidence || 0,
+          average_similarity: data.ai_analysis?.confidence || 0,
+          total_user_segments: segments.length,
+          used_user_segments: data.reference_structure?.matched_segments || 0,
+          usage_rate: data.reference_structure?.matched_segments ? data.reference_structure.matched_segments / segments.length : 0
+        },
+        aligned_audio_path: data.arranged_audio_url
       });
 
     } catch (err) {
-      setError("Alignment process failed");
+      setError("Failed to arrange vocals to reference");
+    } finally {
+      setIsReferenceLoading(false);
     }
   };
 
@@ -315,7 +296,7 @@ export default function Home() {
 
           {/* Process Button */}
           <button
-            onClick={handleProcessVocals}
+            onClick={handleProcessInputVocals}
             className="w-full bg-teal-600 hover:bg-teal-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-bold text-lg transition-colors"
             disabled={isLoading || !vocalsFile}
           >
@@ -325,10 +306,10 @@ export default function Home() {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                Processing Vocals...
+                Processing...
               </span>
             ) : (
-              "🎵 Analyze & Segment Vocals"
+              "🎵 Process Input Vocals"
             )}
           </button>
 
@@ -345,17 +326,17 @@ export default function Home() {
           {segments && (
             <div className="mt-4 p-4 bg-gray-700 rounded-lg">
               <h3 className="text-sm font-medium text-teal-300 mb-2">
-                Segments Detected: {segments.length}
+                ✓ Segments Detected: {segments.length}
               </h3>
               <div className="text-xs text-gray-300">
-                Ready for AI arrangement! Scroll down to see arrangement options.
+                Ready for AI arrangement!
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Reference Track Section */}
+      {/* Reference Track Upload Section */}
       <div className="max-w-2xl mx-auto mb-8">
         <div className="bg-gray-800 p-6 rounded-2xl shadow-lg">
           <h2 className="text-xl font-semibold mb-4 text-teal-300">
@@ -375,48 +356,6 @@ export default function Home() {
             />
           </div>
 
-          <div className="flex gap-2 mb-4">
-            {/* Single button to process both vocals and reference together */}
-            {vocalsFile && referenceFile ? (
-              <button
-                onClick={handleProcessWithReference}
-                className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-bold text-lg transition-colors"
-                disabled={isReferenceLoading}
-              >
-                {isReferenceLoading ? (
-                  <span className="flex items-center justify-center">
-                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Processing & Aligning...
-                  </span>
-                ) : (
-                  "🔄 Process & Align to Reference"
-                )}
-              </button>
-            ) : (
-              <div className="flex-1 text-center text-gray-400 text-sm py-3">
-                {!vocalsFile && !referenceFile ? (
-                  "Upload both vocals and reference track to enable processing"
-                ) : !vocalsFile ? (
-                  "Upload vocals file first"
-                ) : (
-                  "Upload reference track to enable alignment"
-                )}
-              </div>
-            )}
-
-            {referenceFile && (
-              <button
-                onClick={removeReferenceFile}
-                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
-              >
-                Remove
-              </button>
-            )}
-          </div>
-
           {/* Reference Audio Preview */}
           {referenceFile && (
             <div className="mb-4 p-4 bg-gray-700 rounded-lg">
@@ -428,75 +367,45 @@ export default function Home() {
             </div>
           )}
 
+          <div className="flex gap-2 mb-4">
+            {/* Process Reference Button */}
+            <button
+              onClick={handleProcessReferenceVocals}
+              className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-bold text-lg transition-colors"
+              disabled={isLoading || !referenceFile}
+            >
+              {isLoading ? (
+                <span className="flex items-center justify-center">
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Processing...
+                </span>
+              ) : (
+                "🎵 Process Reference"
+              )}
+            </button>
+
+            {referenceFile && (
+              <button
+                onClick={removeReferenceFile}
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+
           {/* Reference Segments Preview */}
           {referenceSegments && (
             <div className="mt-4 p-4 bg-gray-700 rounded-lg">
               <h3 className="text-sm font-medium text-teal-300 mb-2">
-                Reference Segments Detected: {referenceSegments.length}
+                ✓ Reference Segments Detected: {referenceSegments.length}
               </h3>
               <div className="text-xs text-gray-300">
                 Reference track processed successfully!
               </div>
-            </div>
-          )}
-
-          {/* Alignment Result Display */}
-          {alignmentResult && (
-            <div className="mt-4 space-y-4">
-              {/* Alignment Statistics */}
-              <div className="p-4 bg-gray-700 rounded-lg">
-                <h3 className="text-sm font-medium text-teal-300 mb-2">
-                  Alignment Results
-                </h3>
-                <div className="grid grid-cols-2 gap-4 text-xs text-gray-300">
-                  <div>
-                    <strong>Total Reference Segments:</strong> {alignmentResult.alignment_info.total_reference_segments}
-                  </div>
-                  <div>
-                    <strong>Matched Segments:</strong> {alignmentResult.alignment_info.matched_segments}
-                  </div>
-                  <div>
-                    <strong>Match Rate:</strong> {(alignmentResult.alignment_info.match_rate * 100).toFixed(2)}%
-                  </div>
-                  <div>
-                    <strong>Average Similarity:</strong> {alignmentResult.alignment_info.average_similarity.toFixed(4)}
-                  </div>
-                  <div>
-                    <strong>Total User Segments:</strong> {alignmentResult.alignment_info.total_user_segments}
-                  </div>
-                  <div>
-                    <strong>Used User Segments:</strong> {alignmentResult.alignment_info.used_user_segments}
-                  </div>
-                  <div>
-                    <strong>Usage Rate:</strong> {(alignmentResult.alignment_info.usage_rate * 100).toFixed(2)}%
-                  </div>
-                  <div>
-                    <strong>Aligned Segments:</strong> {alignmentResult.aligned_segments.length}
-                  </div>
-                </div>
-              </div>
-
-              {/* Aligned Audio Player */}
-              {alignmentResult.aligned_audio_path && (
-                <div className="p-4 bg-green-900/30 border border-green-600 rounded-lg">
-                  <h3 className="text-sm font-medium text-green-300 mb-2">
-                    🎵 Aligned Audio Output
-                  </h3>
-                  <p className="text-xs text-green-200 mb-3">
-                    Your vocals have been rearranged to match the reference track's timing and sequence!
-                  </p>
-                  <AudioPlayer audioUrl={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}${alignmentResult.aligned_audio_path}`} />
-                  <div className="mt-2 flex gap-2">
-                    <a
-                      href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}${alignmentResult.aligned_audio_path}`}
-                      download="aligned_vocals.wav"
-                      className="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded transition-colors"
-                    >
-                      📥 Download Aligned Audio
-                    </a>
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -504,20 +413,131 @@ export default function Home() {
 
       {/* AI Arrangement Section */}
       {segments && segments.length > 0 && (
-        <div className="mb-8">
-          <div className="max-w-6xl mx-auto mb-4">
-            <h2 className="text-2xl font-semibold text-center text-teal-300">
-              3. AI-Powered Vocal Arrangement
+        <div className="max-w-4xl mx-auto mb-8">
+          <div className="bg-gray-800 p-6 rounded-2xl shadow-lg">
+            <h2 className="text-2xl font-semibold mb-4 text-purple-300 text-center">
+              🎯 AI Arrangement
             </h2>
-            <p className="text-center text-gray-400 mt-2">
-              Choose arrangement method and let AI organize your segments into a coherent song structure
+            <p className="text-gray-300 mb-6 text-center">
+              Choose genre and let AI arrange your segments to match reference structure
             </p>
-          </div>
 
-          <AIVocalArranger
-            segments={segments}
-            audioId={vocalsFile?.name || "uploaded-vocal"}
-          />
+            {/* Genre Selection */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium mb-2 text-gray-300">Genre (Optional)</label>
+              <select
+                value={selectedGenre}
+                onChange={(e) => setSelectedGenre(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-white"
+              >
+                {GENRE_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* AI Arrange Button */}
+            <button
+              onClick={handleArrangeToReference}
+              disabled={!segments || !referenceSegments || isReferenceLoading}
+              className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-bold text-lg transition-colors"
+            >
+              {isReferenceLoading ? (
+                <span className="flex items-center justify-center">
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Arranging...
+                </span>
+              ) : (
+                "🤖 AI Arrange to Reference"
+              )}
+            </button>
+
+            {/* Status Display */}
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">Input Vocals:</span>
+                {segments ? (
+                  <span className="text-green-400">✓ {segments.length} segments processed</span>
+                ) : (
+                  <span className="text-red-400">✗ Not processed</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">Reference Track:</span>
+                {referenceSegments ? (
+                  <span className="text-green-400">✓ {referenceSegments.length} segments processed</span>
+                ) : (
+                  <span className="text-red-400">✗ Not processed</span>
+                )}
+              </div>
+            </div>
+
+            {alignmentResult && (
+              <div className="mt-4 text-center">
+                <span className="text-green-400 text-sm">✓ Arrangement complete!</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Final Output Music Player */}
+      {alignmentResult && alignmentResult.aligned_audio_path && (
+        <div className="max-w-4xl mx-auto mb-8">
+          <div className="bg-gradient-to-br from-green-900/30 to-blue-900/30 border border-green-600 p-6 rounded-2xl shadow-lg">
+            <h2 className="text-2xl font-semibold mb-4 text-green-300 text-center">
+              🎵 Your Arranged Vocals
+            </h2>
+            <p className="text-green-200 mb-4 text-center">
+              Your vocals have been intelligently arranged to match the reference track's structure and energy flow!
+            </p>
+
+            {/* Audio Player */}
+            <div className="mb-4">
+              <AudioPlayer audioUrl={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}${alignmentResult.aligned_audio_path}`} />
+            </div>
+
+            {/* Download Button */}
+            <div className="text-center mb-4">
+              <a
+                href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}${alignmentResult.aligned_audio_path}`}
+                download="ai_arranged_vocals.wav"
+                className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-bold text-lg transition-colors"
+              >
+                📥 Download Arranged Vocals
+              </a>
+            </div>
+
+            {/* Arrangement Statistics */}
+            <div className="p-4 bg-gray-800/50 rounded-lg">
+              <h3 className="text-sm font-medium text-green-300 mb-2 text-center">
+                Arrangement Statistics
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs text-gray-300">
+                <div className="text-center">
+                  <div className="font-bold text-white">{alignmentResult.alignment_info.total_reference_segments}</div>
+                  <div>Reference Segments</div>
+                </div>
+                <div className="text-center">
+                  <div className="font-bold text-white">{alignmentResult.alignment_info.matched_segments}</div>
+                  <div>Matched Segments</div>
+                </div>
+                <div className="text-center">
+                  <div className="font-bold text-white">{(alignmentResult.alignment_info.match_rate * 100).toFixed(1)}%</div>
+                  <div>Match Rate</div>
+                </div>
+                <div className="text-center">
+                  <div className="font-bold text-white">{(alignmentResult.alignment_info.usage_rate * 100).toFixed(1)}%</div>
+                  <div>Usage Rate</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -529,23 +549,23 @@ export default function Home() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="text-center">
                 <div className="text-3xl mb-2">🎤</div>
-                <h3 className="font-medium mb-2">1. Upload Audio</h3>
+                <h3 className="font-medium mb-2">1. Upload Vocals</h3>
                 <p className="text-sm text-gray-400">
-                  Upload a freestyle vocal recording or record directly in your browser
+                  Upload or record your freestyle vocals and process them into segments
                 </p>
               </div>
               <div className="text-center">
                 <div className="text-3xl mb-2">🎶</div>
-                <h3 className="font-medium mb-2">2. Reference Track (Optional)</h3>
+                <h3 className="font-medium mb-2">2. Add Reference</h3>
                 <p className="text-sm text-gray-400">
-                  Upload a reference vocal track to align your vocals to match its timing and structure
+                  Upload a reference track and process it to extract structure patterns
                 </p>
               </div>
               <div className="text-center">
                 <div className="text-3xl mb-2">🤖</div>
-                <h3 className="font-medium mb-2">3. AI Arrangement</h3>
+                <h3 className="font-medium mb-2">3. AI Arrange</h3>
                 <p className="text-sm text-gray-400">
-                  AI analyzes and arranges your segments into a structured song or matches reference timing
+                  Let AI intelligently arrange your segments to match the reference structure
                 </p>
               </div>
             </div>
