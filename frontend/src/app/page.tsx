@@ -423,7 +423,7 @@ export default function Home() {
                 ✓ Segments Detected: {segments.length}
               </h3>
               <div className="text-xs text-gray-300">
-                Ready for AI arrangement!
+                Ready for arrangement!
               </div>
             </div>
           )}
@@ -513,24 +513,8 @@ export default function Home() {
               ⚡ Temporal Alignment
             </h2>
             <p className="text-gray-300 mb-6 text-center">
-              Align your segments to match reference track timing with intelligent text and audio similarity matching
+              Align your segments to match reference track timing with intelligent windowed text and audio similarity matching
             </p>
-
-            {/* Genre Selection */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium mb-2 text-gray-300">Audio Context (Optional)</label>
-              <select
-                value={selectedGenre}
-                onChange={(e) => setSelectedGenre(e.target.value)}
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 text-white"
-              >
-                {GENRE_OPTIONS.map(option => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
 
             {/* Temporal Align Button */}
             <button
@@ -551,21 +535,6 @@ export default function Home() {
               )}
             </button>
 
-            {/* System Status (updated) */}
-            {modelStatus && (
-              <div className="mt-4 p-3 bg-gray-700/50 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-300">Temporal Alignment Status:</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                    <span className="text-sm text-green-400">Ready</span>
-                  </div>
-                </div>
-                <div className="mt-2 text-xs text-green-400">
-                  ✓ Text similarity matching, audio feature analysis, and time stretching available
-                </div>
-              </div>
-            )}
 
             {/* Status Display */}
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -877,9 +846,9 @@ export default function Home() {
               </div>
               <div className="text-center">
                 <div className="text-3xl mb-2">🤖</div>
-                <h3 className="font-medium mb-2">3. AI Arrange</h3>
+                <h3 className="font-medium mb-2">3. Temporal Align</h3>
                 <p className="text-sm text-gray-400">
-                  Let AI intelligently arrange your segments to match the reference structure
+                  Use intelligent windowed matching to align your segments with reference track timing
                 </p>
               </div>
             </div>
