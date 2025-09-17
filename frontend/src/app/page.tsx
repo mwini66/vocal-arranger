@@ -29,8 +29,9 @@ export default function Home() {
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isVocalsLoading, setIsVocalsLoading] = useState<boolean>(false);
   const [isReferenceLoading, setIsReferenceLoading] = useState<boolean>(false);
+  const [isArranging, setIsArranging] = useState<boolean>(false);
   const [selectedGenre, setSelectedGenre] = useState<string>("");
   const audioChunks = useRef<Blob[]>([]);
   const vocalsInputRef = useRef<HTMLInputElement>(null);
@@ -103,7 +104,7 @@ export default function Home() {
       setError("Please upload a vocals file first.");
       return;
     }
-    setIsLoading(true);
+    setIsVocalsLoading(true);
     setError(null);
 
     const formData = new FormData();
@@ -131,7 +132,7 @@ export default function Home() {
     } catch (err) {
       setError("Failed to process input vocals");
     } finally {
-      setIsLoading(false);
+      setIsVocalsLoading(false);
     }
   };
 
@@ -141,7 +142,7 @@ export default function Home() {
       setError("Please upload a reference track first.");
       return;
     }
-    setIsLoading(true);
+    setIsReferenceLoading(true);
     setError(null);
 
     const formData = new FormData();
@@ -169,7 +170,7 @@ export default function Home() {
     } catch (err) {
       setError("Failed to process reference vocals");
     } finally {
-      setIsLoading(false);
+      setIsReferenceLoading(false);
     }
   };
 
@@ -179,7 +180,7 @@ export default function Home() {
       setError("Please process both input vocals and reference track first.");
       return;
     }
-    setIsReferenceLoading(true);
+    setIsArranging(true);
     setError(null);
 
     try {
@@ -225,7 +226,7 @@ export default function Home() {
     } catch (err) {
       setError("Failed to arrange vocals to reference");
     } finally {
-      setIsReferenceLoading(false);
+      setIsArranging(false);
     }
   };
 
@@ -298,9 +299,9 @@ export default function Home() {
           <button
             onClick={handleProcessInputVocals}
             className="w-full bg-teal-600 hover:bg-teal-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-bold text-lg transition-colors"
-            disabled={isLoading || !vocalsFile}
+            disabled={isVocalsLoading || !vocalsFile}
           >
-            {isLoading ? (
+            {isVocalsLoading ? (
               <span className="flex items-center justify-center">
                 <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -372,9 +373,9 @@ export default function Home() {
             <button
               onClick={handleProcessReferenceVocals}
               className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-bold text-lg transition-colors"
-              disabled={isLoading || !referenceFile}
+              disabled={isReferenceLoading || !referenceFile}
             >
-              {isLoading ? (
+              {isReferenceLoading ? (
                 <span className="flex items-center justify-center">
                   <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -441,10 +442,10 @@ export default function Home() {
             {/* AI Arrange Button */}
             <button
               onClick={handleArrangeToReference}
-              disabled={!segments || !referenceSegments || isReferenceLoading}
+              disabled={!segments || !referenceSegments || isArranging}
               className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-bold text-lg transition-colors"
             >
-              {isReferenceLoading ? (
+              {isArranging ? (
                 <span className="flex items-center justify-center">
                   <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
