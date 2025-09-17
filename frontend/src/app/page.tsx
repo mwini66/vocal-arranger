@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import AudioPlayer from "../components/ui/AudioPlayer";
 import { AIVocalArranger, EnhancedSegmentFeature } from "../components/ui/AIVocalArranger";
 
@@ -33,6 +33,7 @@ export default function Home() {
   const [isReferenceLoading, setIsReferenceLoading] = useState<boolean>(false);
   const [isArranging, setIsArranging] = useState<boolean>(false);
   const [selectedGenre, setSelectedGenre] = useState<string>("");
+  const [modelStatus, setModelStatus] = useState<any>(null);
   const audioChunks = useRef<Blob[]>([]);
   const vocalsInputRef = useRef<HTMLInputElement>(null);
   const referenceInputRef = useRef<HTMLInputElement>(null);
@@ -46,6 +47,11 @@ export default function Home() {
     { value: "folk", label: "Folk" },
     { value: "electronic", label: "Electronic" }
   ];
+
+  // Fetch model status on component mount
+  useEffect(() => {
+    fetchModelStatus();
+  }, []);
 
   // Start recording
   const startRecording = async () => {
@@ -227,6 +233,18 @@ export default function Home() {
       setError("Failed to arrange vocals to reference");
     } finally {
       setIsArranging(false);
+    }
+  };
+
+  // Fetch model status
+  const fetchModelStatus = async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+      const response = await fetch(`${apiUrl}/model_status`);
+      const status = await response.json();
+      setModelStatus(status);
+    } catch (err) {
+      console.error("Failed to get model status:", err);
     }
   };
 
@@ -449,7 +467,7 @@ export default function Home() {
                 <span className="flex items-center justify-center">
                   <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
                   Arranging...
                 </span>
@@ -457,6 +475,33 @@ export default function Home() {
                 "🤖 AI Arrange to Reference"
               )}
             </button>
+
+            {/* AI Model Status */}
+            {modelStatus && (
+              <div className="mt-4 p-3 bg-gray-700/50 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-300">AI Model Status:</span>
+                  <div className="flex items-center gap-2">
+                    {modelStatus.models?.ai_llm ? (
+                      <>
+                        <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                        <span className="text-sm text-green-400">Ready</span>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-2 h-2 bg-red-400 rounded-full"></div>
+                        <span className="text-sm text-red-400">Unavailable</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {!modelStatus.models?.ai_llm && (
+                  <div className="mt-2 text-xs text-yellow-400">
+                    ⚠️ AI model not available. Check OPENROUTER_API_KEY configuration.
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Status Display */}
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -508,6 +553,8 @@ export default function Home() {
               <a
                 href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}${alignmentResult.aligned_audio_path}`}
                 download="ai_arranged_vocals.wav"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-bold text-lg transition-colors"
               >
                 📥 Download Arranged Vocals
