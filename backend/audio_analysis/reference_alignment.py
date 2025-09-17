@@ -272,7 +272,14 @@ class TemporalAligner:
 
     def _calculate_text_segment_similarity(self, input_text: str, ref_text: str) -> float:
         """
-        Enhanced text similarity calculation with multiple methods.
+        Hybrid text similarity calculation combining lexical and phonetic methods.
+
+        Components:
+        1. Lexical similarity (character/word matching) - 60%
+        2. Phonetic similarity (sound-based matching) - 40%
+
+        This helps distinguish between words that look similar but sound different,
+        like "I" vs "live" which would score low on phonetic similarity.
         """
         if not input_text or not ref_text:
             return 0.0
@@ -284,41 +291,273 @@ class TemporalAligner:
         if not input_clean or not ref_clean:
             return 0.0
 
-        similarities = []
-
         # 1. Exact match bonus
         if input_clean == ref_clean:
             return 1.0
 
-        # 2. Word overlap similarity (Jaccard index)
+        # 2. Calculate lexical similarities (existing methods)
+        lexical_similarities = []
+
+        # Word overlap similarity (Jaccard index)
         input_words = set(input_clean.split())
         ref_words = set(ref_clean.split())
         if input_words and ref_words:
             intersection = len(input_words.intersection(ref_words))
             union = len(input_words.union(ref_words))
             jaccard = intersection / union if union > 0 else 0.0
-            similarities.append(jaccard)
+            lexical_similarities.append(jaccard)
 
-        # 3. Sequence similarity (difflib)
+        # Sequence similarity (difflib)
         seq_sim = difflib.SequenceMatcher(None, input_clean, ref_clean).ratio()
-        similarities.append(seq_sim)
+        lexical_similarities.append(seq_sim)
 
-        # 4. Levenshtein-based similarity
+        # Levenshtein-based similarity
         try:
             import editdistance
             max_len = max(len(input_clean), len(ref_clean))
             if max_len > 0:
                 edit_dist = editdistance.eval(input_clean, ref_clean)
                 lev_sim = 1.0 - (edit_dist / max_len)
-                similarities.append(lev_sim)
+                lexical_similarities.append(lev_sim)
         except ImportError:
             pass
 
-        # 5. Substring matching bonus
+        # Substring matching bonus
         if input_clean in ref_clean or ref_clean in input_clean:
-            similarities.append(0.8)
+            lexical_similarities.append(0.8)
 
+        # 3. Calculate phonetic similarities (NEW)
+        phonetic_similarities = []
+
+        # Phonetic similarity at word level
+        input_word_list = input_clean.split()
+        ref_word_list = ref_clean.split()
+
+        if input_word_list and ref_word_list:
+            # Calculate phonetic similarity for each word pair
+            word_phonetic_scores = []
+
+            for input_word in input_word_list:
+                best_phonetic_score = 0.0
+                for ref_word in ref_word_list:
+                    phonetic_score = self._calculate_phonetic_word_similarity(input_word, ref_word)
+                    best_phonetic_score = max(best_phonetic_score, phonetic_score)
+                word_phonetic_scores.append(best_phonetic_score)
+
+            # Average phonetic similarity across all input words
+            avg_phonetic = sum(word_phonetic_scores) / len(word_phonetic_scores)
+            phonetic_similarities.append(avg_phonetic)
+
+        # Phrase-level phonetic similarity
+        phrase_phonetic = self._calculate_phonetic_phrase_similarity(input_clean, ref_clean)
+        phonetic_similarities.append(phrase_phonetic)
+
+        # 4. Combine lexical and phonetic similarities
+        lexical_score = max(lexical_similarities) if lexical_similarities else 0.0
+        phonetic_score = max(phonetic_similarities) if phonetic_similarities else 0.0
+
+        # Hybrid score: 60% lexical, 40% phonetic
+        # This ensures that "I" and "live" get a low phonetic score despite character overlap
+        hybrid_score = 0.6 * lexical_score + 0.4 * phonetic_score
+
+        logger.debug(f"Text similarity '{input_clean}' vs '{ref_clean}': "
+                    f"lexical={lexical_score:.3f}, phonetic={phonetic_score:.3f}, "
+                    f"hybrid={hybrid_score:.3f}")
+
+        return hybrid_score
+
+    def _calculate_phonetic_word_similarity(self, word1: str, word2: str) -> float:
+        """
+        Calculate phonetic similarity between two words using available phonetic algorithms.
+
+        Uses:
+        1. Soundex (English phonetic algorithm)
+        2. Metaphone (more accurate than Soundex)
+        3. NYSIIS (Name similarity algorithm)
+        4. Phoneme-level distance
+        """
+        if not word1 or not word2:
+            return 0.0
+
+        if word1 == word2:
+            return 1.0
+
+        similarities = []
+
+        # 1. Soundex similarity
+        try:
+            import jellyfish
+            soundex1 = jellyfish.soundex(word1)
+            soundex2 = jellyfish.soundex(word2)
+            soundex_sim = 1.0 if soundex1 == soundex2 else 0.0
+            similarities.append(soundex_sim)
+        except ImportError:
+            # Fallback simple soundex implementation
+            soundex_sim = 1.0 if self._simple_soundex(word1) == self._simple_soundex(word2) else 0.0
+            similarities.append(soundex_sim)
+
+        # 2. Metaphone similarity
+        try:
+            import jellyfish
+            metaphone1 = jellyfish.metaphone(word1)
+            metaphone2 = jellyfish.metaphone(word2)
+            metaphone_sim = 1.0 if metaphone1 == metaphone2 else 0.0
+            similarities.append(metaphone_sim)
+        except (ImportError, AttributeError):
+            pass
+
+        # 3. NYSIIS similarity (alternative to Double Metaphone)
+        try:
+            import jellyfish
+            nysiis1 = jellyfish.nysiis(word1)
+            nysiis2 = jellyfish.nysiis(word2)
+            nysiis_sim = 1.0 if nysiis1 == nysiis2 else 0.0
+            similarities.append(nysiis_sim)
+        except (ImportError, AttributeError):
+            pass
+
+        # 4. Phoneme-level edit distance
+        phoneme_sim = self._calculate_phoneme_similarity(word1, word2)
+        similarities.append(phoneme_sim)
+
+        # Return the best phonetic similarity
         return max(similarities) if similarities else 0.0
+
+    def _calculate_phonetic_phrase_similarity(self, phrase1: str, phrase2: str) -> float:
+        """
+        Calculate phonetic similarity for entire phrases.
+        """
+        if not phrase1 or not phrase2:
+            return 0.0
+
+        # Simple approach: average phonetic similarity of all word pairs
+        words1 = phrase1.split()
+        words2 = phrase2.split()
+
+        if not words1 or not words2:
+            return 0.0
+
+        # For each word in phrase1, find best phonetic match in phrase2
+        total_similarity = 0.0
+        for word1 in words1:
+            best_sim = max([self._calculate_phonetic_word_similarity(word1, word2) for word2 in words2])
+            total_similarity += best_sim
+
+        return total_similarity / len(words1)
+
+    def _calculate_phoneme_similarity(self, word1: str, word2: str) -> float:
+        """
+        Calculate similarity based on estimated phoneme sequences.
+        This is a simplified phoneme-level comparison.
+        """
+        if not word1 or not word2:
+            return 0.0
+
+        # Convert to simplified phoneme representations
+        phonemes1 = self._word_to_phonemes(word1)
+        phonemes2 = self._word_to_phonemes(word2)
+
+        if not phonemes1 or not phonemes2:
+            return 0.0
+
+        # Calculate edit distance between phoneme sequences
+        try:
+            # Try jellyfish first (more likely to be available)
+            import jellyfish
+            phoneme_distance = jellyfish.levenshtein_distance(phonemes1, phonemes2)
+            max_len = max(len(phonemes1), len(phonemes2))
+            similarity = 1.0 - (phoneme_distance / max_len) if max_len > 0 else 0.0
+            return similarity
+        except ImportError:
+            pass
+
+        try:
+            # Try python-Levenshtein as fallback
+            import Levenshtein
+            phoneme_distance = Levenshtein.distance(phonemes1, phonemes2)
+            max_len = max(len(phonemes1), len(phonemes2))
+            similarity = 1.0 - (phoneme_distance / max_len) if max_len > 0 else 0.0
+            return similarity
+        except ImportError:
+            pass
+
+        # Final fallback to sequence matching
+        return difflib.SequenceMatcher(None, phonemes1, phonemes2).ratio()
+
+    def _word_to_phonemes(self, word: str) -> str:
+        """
+        Convert word to simplified phoneme representation.
+        This is a basic approximation - in production, you'd use a proper phoneme dictionary.
+        """
+        if not word:
+            return ""
+
+        word = word.lower()
+
+        # Basic English phoneme mapping (simplified)
+        phoneme_map = {
+            # Vowels
+            'a': 'A', 'e': 'E', 'i': 'I', 'o': 'O', 'u': 'U',
+            'y': 'I',  # y often sounds like i
+
+            # Common consonant clusters
+            'ph': 'F', 'th': 'T', 'sh': 'S', 'ch': 'C',
+            'ck': 'K', 'ng': 'N',
+
+            # Silent letters (common cases)
+            'ght': 'T',  # night -> nIT
+            'kn': 'N',   # knife -> nIF
+            'wr': 'R',   # write -> rIT
+            'mb': 'M',   # lamb -> laM
+        }
+
+        # Apply phoneme mappings
+        result = word
+        for pattern, replacement in phoneme_map.items():
+            result = result.replace(pattern, replacement)
+
+        # Remove common silent ending letters
+        if result.endswith('e') and len(result) > 2:
+            result = result[:-1]
+
+        # Remove duplicate consonants
+        deduplicated = ""
+        prev_char = ""
+        for char in result:
+            if char != prev_char or char in 'AEIOU':
+                deduplicated += char
+            prev_char = char
+
+        return deduplicated.upper()
+
+    def _simple_soundex(self, word: str) -> str:
+        """
+        Simple Soundex implementation as fallback.
+        """
+        if not word:
+            return ""
+
+        word = word.upper()
+
+        # Keep first letter
+        soundex = word[0]
+
+        # Soundex mapping
+        mapping = {
+            'BFPV': '1', 'CGJKQSXZ': '2', 'DT': '3',
+            'L': '4', 'MN': '5', 'R': '6'
+        }
+
+        for char in word[1:]:
+            for key, value in mapping.items():
+                if char in key:
+                    if len(soundex) == 1 or soundex[-1] != value:
+                        soundex += value
+                    break
+
+        # Pad or trim to 4 characters
+        soundex = (soundex + '000')[:4]
+        return soundex
 
     def _calculate_audio_feature_similarity(self, input_seg: Dict, ref_seg: Dict) -> float:
         """
