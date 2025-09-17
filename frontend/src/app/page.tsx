@@ -2,7 +2,41 @@
 
 import { useState, useRef, useEffect } from "react";
 import AudioPlayer from "../components/ui/AudioPlayer";
-import { AIVocalArranger, EnhancedSegmentFeature } from "../components/ui/AIVocalArranger";
+
+// Interface for segment features - extracted from AIVocalArranger since we only need the type
+export interface EnhancedSegmentFeature {
+  start: number;
+  end: number;
+  text: string;
+  segment_index: number;
+
+  // Normalized audio features (0-1 scale)
+  energy: number;
+  pitch: number;
+  duration: number;
+  pause: number;
+
+  // Categorical features for display
+  energy_category: string;
+  pitch_category: string;
+  duration_category: string;
+  text_density: string;
+
+  // Musical characteristics
+  is_repetitive: boolean;
+  has_vocal_runs: boolean;
+  is_sustained: boolean;
+
+  // Structural hints
+  likely_intro: boolean;
+  likely_outro: boolean;
+  likely_hook: boolean;
+
+  // Text characteristics
+  keywords: string[];
+  word_count: number;
+  unique_word_ratio: number;
+}
 
 interface ReferenceAlignment {
   aligned_segments: EnhancedSegmentFeature[];
