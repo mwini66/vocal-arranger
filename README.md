@@ -1,239 +1,190 @@
-# AutoComposer: AI-Driven Vocal Arrangement System
+# AI-Driven Vocal Arranger
 
-An intelligent audio alignment and arrangement tool that automatically segments, aligns, and organizes freestyle vocal takes into structured compositions using AI-driven analysis and context-aware placement.
+An intelligent vocal arrangement system that automatically segments freestyle vocals and uses AI to arrange them to match reference track structures. The system combines WhisperX transcription, advanced audio analysis, and LLM-powered arrangement to create professionally structured vocal compositions.
 
 ## 🎯 Project Overview
 
-**AutoComposer** addresses a critical gap in modern music production by automatically transforming unstructured freestyle vocal recordings into beat-synchronized, professionally arranged compositions. The system uses advanced audio analysis, machine learning, and dynamic time warping to understand both instrumental structure and vocal patterns, enabling seamless vocal-to-beat alignment without manual intervention.
+The **AI-Driven Vocal Arranger** transforms unstructured freestyle vocal recordings into professionally arranged compositions by:
 
-### Problem Statement
-Modern music production, especially in hip-hop, afrobeat, and R&B, often begins with artists recording freestyle or unordered vocal takes. These creative inputs are spontaneous and unstructured, requiring producers to spend significant time manually cutting, arranging, and aligning them to fixed song structures. This workflow creates barriers for artists lacking technical skills or professional studio access.
+1. **Processing Input Vocals**: Segments and analyzes freestyle vocals using WhisperX and audio feature extraction
+2. **Processing Reference Tracks**: Analyzes reference vocals to extract structure, energy patterns, and timing
+3. **AI-Powered Arrangement**: Uses OpenRouter's GPT models to intelligently arrange input segments to match reference track characteristics
 
-### Solution Approach
-AutoComposer uses a **bottom-up methodology** starting with AI-driven vocal understanding and progressively adding reference track precision:
-
-1. **Module 1**: Genre-trained AI that understands instrumental energy and vocal patterns for autonomous arrangement
-2. **Module 2**: Reference-track precision module for exact vocal-to-reference alignment
+### Key Innovation
+- **Reference-Based AI Arrangement**: LLM analyzes both input and reference vocals to create arrangements that match the reference track's energy flow, structure, and timing patterns
+- **Enhanced Audio Analysis**: Extracts comprehensive features including energy levels, pitch categories, mood detection, and structural hints
+- **Intelligent Matching**: AI considers lyrical content, energy progression, and musical structure for optimal vocal placement
 
 ## 🏗️ Architecture
 
 ### Backend (Python/Flask)
-- **Framework**: Flask with modular Python scripts
-- **Audio Processing**: librosa, madmom, aubio, essentia for audio analysis
-- **AI/ML**: Pre-trained models for vocal recognition and energy detection
-- **Core Features**: Intelligent segmentation, beat detection, dynamic alignment
+- **Framework**: Flask with modular audio analysis pipeline
+- **AI/LLM**: OpenRouter API integration for intelligent arrangement
+- **Audio Processing**: WhisperX for transcription, librosa for feature extraction
+- **Core Features**: Reference-based arrangement, segment analysis, confidence scoring
 
 ### Frontend (Next.js/TypeScript)
 - **Framework**: Next.js with TypeScript and TailwindCSS
-- **Audio Visualization**: WaveSurfer.js for waveform and timeline display
-- **State Management**: Zustand for arrangement and take management
-- **UI Components**: Radix UI with custom audio production interface
+- **UI Components**: Custom audio production interface with segment visualization
+- **Workflow**: 3-step process (Process Input → Process Reference → AI Arrange)
+- **Features**: Audio preview, download functionality, arrangement statistics
 
 ## 📁 Project Structure
 
 ```
 vocal-arranger/
 ├── backend/
-│   ├── app.py                 # Flask main application
-│   ├── segmenter.py          # AI-driven vocal segmentation
-│   ├── aligner.py            # Dynamic time warping alignment
-│   ├── grouping.py           # Section grouping and take management
-│   ├── gentle_client.py      # Forced alignment integration
-│   ├── audio_analysis/       # Audio feature extraction and ML models
-│   │   ├── align.py          # DTW and beat alignment algorithms
-│   │   ├── extract_features.py # Energy, pitch, and structural analysis
-│   │   ├── utils.py          # Audio processing utilities
-│   │   └── view_log.py       # Analysis logging and metrics
-│   ├── data/                 # Training data, logs, and processed audio
-│   └── uploads/              # User uploaded and processed files
+│   ├── app.py                    # Flask main application with API endpoints
+│   ├── audio_analysis/
+│   │   ├── arrangement.py        # AIVocalArranger with reference-based logic
+│   │   ├── llm_utils.py         # OpenRouter client for GPT integration
+│   │   ├── extract_features.py  # Enhanced audio feature extraction
+│   │   ├── whisperx_utils.py    # WhisperX transcription utilities
+│   │   └── reference_alignment.py # Reference track processing and alignment
+│   ├── data/                    # User feedback and processing logs
+│   ├── uploads/                 # Input vocals and reference tracks
+│   └── uploads/aligned/         # Generated arranged audio files
 └── frontend/
     ├── src/
-    │   ├── app/              # Next.js app router pages
-    │   ├── components/ui/    # Audio production UI components
-    │   └── lib/              # Zustand stores and utilities
-    └── public/               # Static assets
+    │   ├── app/
+    │   │   └── page.tsx         # Main UI with 3-step workflow
+    │   ├── components/ui/
+    │   │   ├── AudioPlayer.tsx   # Audio playback component
+    │   │   └── AIVocalArranger.tsx # Legacy arrangement interface
+    │   └── lib/                 # Utilities and helpers
+    └── public/                  # Static assets
 ```
 
-## 🚀 Current Status
+## 🚀 Current Features
 
-### ✅ Completed Features
-- **File Upload System**: Vocal and instrumental file upload with processing pipeline
-- **Basic Audio Mixing**: Combining uploaded tracks with initial alignment
-- **Frontend Foundation**: Next.js setup with audio visualization capabilities
-- **Backend Infrastructure**: Flask server with CORS and modular script architecture
+### ✅ Complete Implementation
+- **3-Step Workflow**: Process Input Vocals → Process Reference → AI Arrange
+- **WhisperX Integration**: Accurate vocal segmentation and transcription
+- **Enhanced Feature Extraction**: Energy, pitch, mood, structural hints analysis
+- **AI-Powered Arrangement**: OpenRouter GPT models for intelligent vocal placement
+- **Reference-Based Matching**: AI analyzes both input and reference to create optimal arrangements
+- **Audio Output Generation**: Creates downloadable arranged vocal files
+- **User Feedback System**: Rating collection for continuous AI improvement
+- **Real-time Status**: Shows processing status and AI model availability
 
-### 🔄 In Development
-- **AI Vocal Segmentation**: ML-powered analysis of vocal patterns and energy levels
-- **Beat Structure Detection**: Instrumental analysis for energy, tempo, and section identification
-- **Dynamic Time Warping**: Core alignment algorithm for vocal-to-beat synchronization
+### 🎵 Audio Analysis Features
+- **Energy Categorization**: Very low to very high energy levels
+- **Pitch Analysis**: Low to high pitch classification
+- **Mood Detection**: Party, intense, emotional, uplifting, neutral moods
+- **Structural Hints**: Intro-like, hook-like, outro-like segment identification
+- **Text Analysis**: Repetition detection, keyword extraction, word count metrics
 
-## 🛣️ Development Roadmap
+## 🛠️ Technical Implementation
 
-### Module 1: Autonomous AI Arrangement (Current Focus)
-**Goal**: Create genre-trained AI that understands instrumentals and vocals for autonomous arrangement
+### Core Workflow:
+1. **Input Processing**: WhisperX segments vocals → Extract audio features → Store segment data
+2. **Reference Processing**: WhisperX analyzes reference → Extract structural patterns → Map energy flow
+3. **AI Arrangement**: LLM receives both datasets → Analyzes compatibility → Creates arrangement plan
+4. **Audio Generation**: Applies arrangement to input vocals → Creates aligned output file
 
-#### Phase 1a: Intelligent Audio Analysis
-**Tasks:**
-1. **Instrumental Analysis** (`audio_analysis/extract_features.py`)
-   - Energy level detection and segmentation
-   - Beat, tempo, and downbeat detection using madmom
-   - Musical section identification (verse, chorus, bridge patterns)
-   - Genre-specific energy pattern recognition
+### Key Technologies:
+- **OpenRouter API**: GPT models for arrangement intelligence
+- **WhisperX**: High-accuracy speech transcription and segmentation
+- **librosa**: Audio feature extraction and analysis
+- **Flask**: RESTful API backend with CORS support
+- **Next.js**: Modern React frontend with TypeScript
 
-2. **Vocal Pattern Recognition** (`segmenter.py`)
-   - Vocal phrase segmentation using silence detection and energy thresholds
-   - Pitch analysis and key detection with CREPE or librosa
-   - Vocal energy mapping and intonation analysis
-   - Speech-to-text integration for lyric understanding
+## 🔧 Setup Instructions
 
-3. **AI Training Pipeline**
-   - Genre-specific training data collection
-   - Energy pattern classification models
-   - Vocal-to-instrumental matching algorithms
-
-#### Phase 1b: Intelligent Arrangement Engine
-**Tasks:**
-1. **Context-Aware Placement** (`aligner.py`)
-   - AI-driven vocal-to-beat alignment using energy correlation
-   - Dynamic time warping for flexible vocal placement
-   - Multi-option arrangement generation with ranking system
-
-2. **Take Management System** (`grouping.py`)
-   - Section-based storage for multiple vocal takes
-   - "Best take" selection using ML metrics
-   - Ranking system for arrangement quality assessment
-
-3. **Quality Enhancement**
-   - Mispronunciation detection and correction suggestions
-   - Key correction recommendations
-   - Wrong-key vocal identification and handling
-
-#### Libraries & Tools:
-- **librosa**: Audio analysis and feature extraction
-- **madmom**: Beat tracking and musical structure analysis
-- **essentia**: Advanced audio analysis and MIR features
-- **CREPE**: High-accuracy pitch estimation
-- **whisper**: Speech recognition for lyric alignment
-- **aubio**: Real-time audio labeling
-- **DTW (Dynamic Time Warping)**: Vocal-beat alignment
-- **U-Net**: ML-based vocal segmentation
-
-### Module 2: Reference Track Precision (Future)
-**Goal**: Achieve exact vocal-to-reference alignment with precision metrics
-
-#### Phase 2a: Reference Track Analysis
-**Tasks:**
-1. **Exhaustive Reference Processing**
-   - Complete structural analysis of reference tracks
-   - Vocal extraction and pattern mapping
-   - Timing precision measurement and correction
-
-2. **Precision Alignment**
-   - Exact vocal placement matching reference timing
-   - Sub-beat alignment accuracy
-   - Quality metrics for alignment precision
-
-#### Phase 2b: Error Detection & User Feedback
-**Tasks:**
-1. **Vocal Quality Analysis**
-   - Missed vocal detection
-   - Wrong key identification
-   - Mispronunciation flagging without auto-correction
-
-2. **Performance Metrics**
-   - Mathematical success metrics for alignment accuracy
-   - User error reporting and suggestions
-   - A/B testing framework for arrangement options
-
-## 🔧 Technical Implementation
-
-### Core Algorithms:
-1. **Beat Structure Detection**: madmom, essentia for tempo and section analysis
-2. **Vocal Segmentation**: ML models (U-Net) + energy thresholds
-3. **Alignment**: Dynamic Time Warping (DTW) with AI-enhanced matching
-4. **Quality Assessment**: Custom metrics combining timing accuracy and musical coherence
-
-### Dependencies:
+### Backend Setup
 ```bash
-# Core Audio Processing
-pip install librosa madmom aubio essentia
+cd backend
+pip install -r requirements.txt
 
-# Machine Learning & AI
-pip install whisper-openai tensorflow scikit-learn
+# Create .env file
+echo "OPENROUTER_API_KEY=your_key_here" > .env
 
-# Audio Manipulation
-pip install pydub soundfile scipy numpy
-
-# Backend Framework
-pip install flask flask-cors python-dotenv
-
-# Development Tools
-pip install pytest black flake8
+# Run server
+python app.py
 ```
 
-### Data Requirements:
-- **Training Data**: Genre-specific instrumental and vocal datasets
-- **Audio Quality**: Minimum 44.1kHz, 16-bit for optimal ML performance
-- **Computational**: GPU recommended for real-time AI processing
+### Frontend Setup
+```bash
+cd frontend
+npm install
 
-## 🎛️ User Workflow
+# Create .env.local file
+echo "NEXT_PUBLIC_API_URL=http://localhost:5000" > .env.local
 
-### Module 1 Workflow (Autonomous):
-1. **Upload Freestyle Vocals**: Single or multiple unordered vocal takes
-2. **Upload Instrumental**: Beat or full instrumental track
-3. **AI Analysis**: Automatic vocal and instrumental pattern recognition
-4. **Arrangement Options**: Multiple AI-generated arrangement options with rankings
-5. **Selection & Export**: Choose preferred arrangement and export stems
+# Run development server
+npm run dev
+```
 
-### Module 2 Workflow (Reference-Based):
-1. **Upload Reference Track**: Original song for exact matching
-2. **Upload Freestyle Vocals**: Vocal takes to be precisely aligned
-3. **Precision Analysis**: Detailed comparison and alignment metrics
-4. **Error Reporting**: AI feedback on vocal quality and placement issues
-5. **Perfected Export**: High-precision aligned output with quality metrics
+## 📊 API Endpoints
 
-## 🧪 Testing & Evaluation
+### Core Processing
+- `POST /process_vocals` - Process input vocals (Step 1)
+- `POST /process_reference` - Process reference track (Step 2)  
+- `POST /arrange_to_reference` - AI arrangement (Step 3)
 
-### Functional Metrics:
-- **Alignment Accuracy**: Visual and algorithmic beat-sync precision
-- **Section Consistency**: Correct placement of repeated musical parts
-- **Take Management**: User feedback on take selection and organization
-- **Processing Speed**: Real-time or faster arrangement generation
+### Legacy Support
+- `POST /segment` - Basic vocal segmentation
+- `POST /arrange` - Standalone AI arrangement
+- `POST /process_with_reference` - Complete workflow in one call
 
-### User-Focused Metrics:
-- **Time Savings**: Manual vs. AutoComposer arrangement time comparison
-- **Creative Flow**: Artist and producer usability feedback
-- **Musical Quality**: A/B testing against manually arranged tracks
-- **Genre Adaptability**: Performance across different musical styles
+### Status & Feedback
+- `GET /model_status` - Check AI model availability
+- `POST /arrangement/feedback` - Submit user ratings
 
-### Success Targets:
-- **Alignment Precision**: <25ms timing deviation for Module 2
-- **Segmentation Accuracy**: >95% correct vocal phrase identification
-- **User Satisfaction**: >80% preference over manual arrangement
-- **Processing Speed**: <2x real-time for complete arrangement
+## 🎯 User Workflow
 
-## 🎯 Innovation & Impact
+### Main Workflow (3-Step Process):
+1. **Upload Input Vocals**: Freestyle or unordered vocal recordings
+2. **Upload Reference Track**: Vocal track with desired structure/energy
+3. **AI Processing**: 
+   - Input analysis (segments, energy, mood, lyrics)
+   - Reference analysis (structure, timing, energy progression)
+   - Intelligent arrangement matching input to reference patterns
+4. **Download Result**: Professionally arranged vocals with statistics
 
-### Technical Innovation:
-- **Bottom-up AI Approach**: Genre-trained models for autonomous vocal understanding
-- **Multi-Take Intelligence**: AI-powered take selection and ranking
-- **Context-Aware Placement**: Energy and pattern-based vocal positioning
-- **Progressive Precision**: Modular approach from autonomous to reference-exact alignment
+### Output Features:
+- **High-Quality Audio**: Preserves original vocal quality during arrangement
+- **Arrangement Statistics**: Match rates, confidence scores, usage metrics
+- **AI Transparency**: Shows reasoning behind arrangement decisions
+- **User Feedback**: Rate arrangements to improve future AI performance
 
-### Industry Impact:
-- **Democratized Production**: Enables non-technical artists to create professional arrangements
-- **Workflow Acceleration**: Reduces manual arrangement time by 70-90%
-- **Creative Enhancement**: Provides multiple arrangement options for artistic exploration
-- **Accessibility**: Removes technical barriers to music production
+## 🧪 Performance Metrics
 
-## 🔄 Future Extensions
+### Technical Performance:
+- **Processing Speed**: Varies by audio length; typically 10-30s for input vocals, 5-15s for reference tracks
+- **AI Response Time**: 15-45s for arrangement generation (depends on OpenRouter API availability)
+- **Audio Quality**: Preserves original vocal characteristics during arrangement
+- **Confidence Scoring**: AI provides confidence scores (varies by content complexity)
 
-- **Multi-Language Support**: Expand vocal recognition across languages
-- **Live Performance Mode**: Real-time vocal arrangement during recording
-- **DAW Integration**: Plugin versions for major DAW platforms
-- **Collaborative Features**: Multi-user vocal take sharing and arrangement
-- **Advanced AI**: Integration with latest speech and music AI models
+### Success Metrics:
+- **Arrangement Quality**: AI confidence varies by content and reference match quality
+- **User Satisfaction**: Collecting user ratings for continuous improvement
+- **Processing Reliability**: Generally reliable with proper error handling for API failures
+- **Feature Accuracy**: Audio feature extraction works well for energy/mood categorization
+
+## 🔄 Recent Updates
+
+### v2.0 - Reference-Based AI Arrangement
+- **New 3-Step Workflow**: Separate processing for input and reference
+- **Enhanced LLM Prompts**: Reference-aware arrangement intelligence
+- **Improved UI**: Streamlined interface with clear progress indicators
+- **Audio Generation**: Creates downloadable arranged vocal files
+- **Statistics Dashboard**: Detailed arrangement analysis and metrics
+
+### Technical Improvements
+- **Separate Loading States**: Independent processing indicators
+- **Model Status Display**: Real-time AI availability checking  
+- **Enhanced Error Handling**: Detailed error messages and recovery
+- **Audio Download**: New tab downloads with proper file naming
+
+## 🌟 Future Roadmap
+
+- **Multi-Reference Support**: Blend characteristics from multiple reference tracks
+- **Genre-Specific Models**: Specialized AI for different musical genres
+- **Real-time Processing**: Live vocal arrangement during recording
+- **Advanced Audio Effects**: Pitch correction and timing refinement
+- **DAW Integration**: Plugin versions for major music production software
 
 ---
 
-*AutoComposer represents the next evolution in AI-assisted music production, bridging the gap between creative expression and technical execution.*
+*The AI-Driven Vocal Arranger represents the cutting edge of AI-assisted music production, making professional vocal arrangement accessible to artists of all skill levels.*

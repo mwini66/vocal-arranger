@@ -1,160 +1,213 @@
 # AI-Driven Vocal Arranger Frontend
 
 ## Overview
-This is the frontend for the AI-Driven Vocal Arranger project. It provides a modern web UI for uploading freestyle vocals, visualizing AI-enhanced segment analysis, and experiencing intelligent vocal arrangement powered by OpenRouter's gpt-oss model.
+Modern React-based frontend for the AI-Driven Vocal Arranger system. Features a streamlined 3-step workflow for reference-based vocal arrangement using OpenRouter's GPT models and WhisperX segmentation.
 
 ## Tech Stack
-- Next.js 14+ (React)
-- TypeScript
-- TailwindCSS
-- Jest (testing)
-- Prettier (formatting)
-- ESLint (linting)
-- Node.js 24.4.1
-- npm
+- **Next.js 14+** (App Router)
+- **TypeScript** 
+- **TailwindCSS** (Styling)
+- **React Hooks** (State management)
+- **Node.js 24.4.1**
+- **npm** (Package management)
 
 ## Key Features
-- **Intuitive Upload Interface**: Upload audio files or record directly in browser
-- **AI Segment Visualization**: Rich display of vocal segments with energy, pitch, mood, and structural analysis
-- **Multiple AI Arrangement Methods**: Compare different AI approaches (genre-specific, structure-based)
-- **Real-time Confidence Scoring**: See how confident the AI is in its arrangement decisions
-- **User Feedback System**: Rate arrangements to help improve AI performance
-- **Responsive Design**: Works seamlessly on desktop and mobile devices
 
-## Folder Structure
+### 🎯 3-Step Reference Workflow
+1. **Process Input Vocals**: Upload/record → WhisperX segmentation → Feature extraction
+2. **Process Reference Track**: Upload reference → Structure analysis → Energy mapping
+3. **AI Arrangement**: Genre selection → LLM analysis → Intelligent arrangement → Audio output
+
+### 🎵 Advanced Audio Interface
+- **Live Recording**: Browser-based vocal recording with MediaRecorder API
+- **Audio Preview**: Built-in audio player for uploads and outputs
+- **File Management**: Upload, preview, and remove audio files
+- **Download Support**: New-tab downloads for arranged vocals
+
+### 🤖 AI Integration
+- **Real-time Status**: Shows OpenRouter API availability
+- **Genre Selection**: Pop, Hip-Hop, R&B, Rock, Folk, Electronic
+- **Confidence Display**: AI arrangement confidence scores
+- **Error Handling**: Detailed error messages and recovery
+
+### 📊 Results Visualization
+- **Arrangement Statistics**: Match rates, confidence scores, usage metrics
+- **Segment Analysis**: Energy, pitch, mood, structural hints
+- **Progress Indicators**: Independent loading states for each step
+
+## Project Structure
 ```
 frontend/
 ├── src/
 │   ├── app/
-│   │   ├── page.tsx              # Main upload and arrangement interface
-│   │   ├── layout.tsx            # App layout and global styles
-│   │   └── globals.css           # Global CSS with TailwindCSS
+│   │   ├── page.tsx              # Main 3-step workflow interface
+│   │   ├── layout.tsx            # App layout and metadata
+│   │   └── globals.css           # TailwindCSS configuration
 │   ├── components/ui/
-│   │   ├── AIVocalArranger.tsx   # Main AI arrangement interface
 │   │   ├── AudioPlayer.tsx       # Audio playback component
-│   │   ├── card.tsx              # Reusable card component
-│   │   └── button.tsx            # Reusable button component
+│   │   ├── AIVocalArranger.tsx   # Legacy arrangement interface
+│   │   ├── card.tsx              # UI card component
+│   │   └── button.tsx            # UI button component
 │   └── lib/
 │       └── utils.ts              # Utility functions
 ├── public/                       # Static assets
-└── package.json                  # Dependencies and scripts
+├── package.json                  # Dependencies and scripts
+├── tsconfig.json                 # TypeScript configuration
+├── tailwind.config.ts            # TailwindCSS configuration
+└── next.config.ts                # Next.js configuration
 ```
 
-## Setup
+## Setup & Installation
 
-### 1. Clone the repository
+### Prerequisites
+- Node.js 24.4.1 or higher
+- npm package manager
+- Running backend server
+
+### 1. Environment Setup
 ```bash
-git clone <repo-url>
+# Navigate to frontend directory
 cd vocal-arranger/frontend
-```
 
-### 2. Install Node.js 24.4.1
-Use [nvm](https://github.com/nvm-sh/nvm) to install the correct Node.js version:
-```bash
+# Install Node.js 24.4.1 (using nvm)
 nvm install 24.4.1
 nvm use 24.4.1
 ```
 
-### 3. Install dependencies
+### 2. Install Dependencies
 ```bash
 npm install
 ```
 
-### 4. Environment Variables
-Create `.env.local` with your backend API URL:
-```bash
-# .env.local
+### 3. Environment Variables
+Create `.env.local` file:
+```env
+# Backend API URL
 NEXT_PUBLIC_API_URL=http://localhost:5000
 ```
 
-## Running the App
+### 4. Run Development Server
 ```bash
 npm run dev
 ```
 
-The app will be available at `http://localhost:3000`
+Access the application at `http://localhost:3000`
 
 ## User Workflow
 
-### 1. Upload or Record Vocals
-- **Upload**: Select any audio file with freestyle vocals
-- **Record**: Use built-in browser recording for live vocals
-- **Preview**: Listen to uploaded audio before processing
+### Step 1: Input Vocals Processing
+- **Upload or Record**: Select audio file or use live recording
+- **Audio Preview**: Listen to uploaded vocals before processing
+- **Process Button**: Triggers WhisperX segmentation and feature extraction
+- **Results**: Displays detected segments with analysis
 
-### 2. AI Analysis & Segmentation
-- **Automatic Processing**: WhisperX transcribes and segments vocals
-- **Enhanced Features**: AI analyzes each segment for:
-  - Energy levels (very low to very high)
-  - Pitch categories (low to high)
-  - Mood detection (party, intense, sad, positive, neutral)
-  - Structural hints (intro-like, hook-like, outro-like)
-  - Repetition analysis and text characteristics
+### Step 2: Reference Track Processing  
+- **Upload Reference**: Select reference vocal track
+- **Audio Preview**: Listen to reference track
+- **Process Button**: Analyzes reference structure and energy patterns
+- **Results**: Shows reference segments and processing confirmation
 
-### 3. AI-Powered Arrangement
-- **Genre Selection**: Choose from pop, hip-hop, R&B, or auto-detect
-- **Structure Options**: Standard pop, hip-hop, R&B, or simple arrangements
-- **Multiple Methods**: Compare different AI arrangement approaches
-- **Confidence Scoring**: See how confident the AI is (0-100%)
+### Step 3: AI Arrangement
+- **Genre Selection**: Choose from 7 genre options or auto-detect
+- **AI Model Status**: Real-time display of OpenRouter API availability
+- **Arrangement Button**: Triggers LLM-based intelligent arrangement
+- **Results**: Downloadable arranged audio with statistics
 
-### 4. Review & Feedback
-- **Detailed Analysis**: View AI reasoning for arrangement decisions
-- **Segment Visualization**: Rich cards showing all segment characteristics
-- **User Rating**: Rate arrangements (1-5 stars) to improve AI
-- **Method Comparison**: See similarities between different AI approaches
+### Final Output
+- **Audio Player**: Play arranged vocals directly in browser
+- **Download Button**: Save arranged vocals (opens in new tab)
+- **Statistics Dashboard**: Match rates, confidence scores, usage metrics
+- **Performance Metrics**: Reference segments, matched segments, usage rates
 
-## Components Overview
+## Component Architecture
 
-### AIVocalArranger
-Main component that handles the AI arrangement interface:
-- **Controls Panel**: Genre/structure selection, arrangement methods
-- **Segment Display**: Rich visualization of vocal segments with characteristics
-- **Method Comparison**: Side-by-side comparison of different AI approaches
-- **Feedback System**: User rating and feedback collection
+### Main Page (`page.tsx`)
+- **State Management**: 15+ React state variables for workflow control
+- **API Integration**: Handles all backend communication
+- **Error Handling**: Comprehensive error display and recovery
+- **Loading States**: Independent loading indicators for each step
 
-### AudioPlayer
-Reusable audio playback component:
-- **Waveform Display**: Visual representation of audio
-- **Playback Controls**: Play, pause, seek functionality
-- **Browser Compatibility**: Works across different browsers
+### AudioPlayer Component
+- **Universal Audio**: Supports multiple audio formats
+- **Browser Compatibility**: Works across modern browsers
+- **Responsive Design**: Adapts to different screen sizes
 
-## Development
+### Legacy AIVocalArranger Component
+- **Backward Compatibility**: Supports older arrangement methods
+- **Segment Visualization**: Rich display of vocal characteristics
+- **Method Comparison**: Side-by-side arrangement comparison
 
-### Run Development Server
+## API Integration
+
+### Core Endpoints
+- `POST /process_vocals` - Step 1: Input vocals processing
+- `POST /process_reference` - Step 2: Reference track processing
+- `POST /arrange_to_reference` - Step 3: AI arrangement
+- `GET /model_status` - AI model availability check
+
+### Data Flow
+1. **File Upload** → FormData → Backend processing
+2. **Processing Status** → Real-time loading indicators
+3. **Results Display** → Rich visualization of analysis
+4. **Audio Output** → Downloadable arranged vocals
+
+## Development Scripts
+
 ```bash
+# Development server with hot reload
 npm run dev
-```
 
-### Build for Production
-```bash
+# Production build
 npm run build
-```
 
-### Run Tests
-```bash
-npm run test
-```
+# Production server
+npm start
 
-### Linting
-```bash
+# Type checking
+npm run type-check
+
+# Linting
 npm run lint
+
+# Fix linting issues
+npm run lint --fix
 ```
 
-### Code Formatting
-```bash
-npx prettier --write .
-```
+## Key Features Implementation
 
-## AI Integration
+### 🎵 Audio Processing
+- **File Handling**: Drag & drop, file selection, live recording
+- **Format Support**: MP3, WAV, M4A, and other browser-supported formats
+- **Preview System**: Built-in audio player for all uploaded files
 
-The frontend communicates with the backend AI system through these key flows:
+### 🤖 AI Integration
+- **Model Status**: Real-time OpenRouter API availability checking
+- **Genre Intelligence**: 7 different genre options with auto-detection
+- **Confidence Scoring**: AI provides arrangement confidence ratings
+- **Error Recovery**: Graceful handling of API failures
 
-1. **Segment Analysis**: `/segment` endpoint processes audio and returns enhanced features
-2. **AI Arrangement**: `/arrange` endpoint uses gpt-oss for intelligent arrangement
-3. **Method Comparison**: `/arrangement/compare` tests multiple AI approaches
-4. **Feedback Loop**: `/arrangement/feedback` improves AI with user ratings
+### 📊 Data Visualization
+- **Segment Cards**: Rich display of vocal segment characteristics
+- **Statistics Dashboard**: Comprehensive arrangement metrics
+- **Progress Tracking**: Visual indicators for each processing step
 
-## Success Metrics
-- **User Experience**: Intuitive upload and arrangement workflow
-- **Performance**: <3s segment processing, <5s AI arrangement
-- **AI Transparency**: Clear confidence scores and reasoning display
-- **Feedback Collection**: High user engagement with rating system
+### 💾 Session Management
+- **Path Storage**: Uses sessionStorage for audio file paths
+- **State Persistence**: Maintains workflow state across interactions
+- **Error Recovery**: Preserves user data during error states
+
+## Performance Optimization
+
+- **Lazy Loading**: Components load only when needed
+- **Optimized Re-renders**: Minimal re-rendering with proper state management
+- **Asset Optimization**: Next.js automatic image and asset optimization
+- **Code Splitting**: Automatic route-based code splitting
+
+## Browser Support
+- **Modern Browsers**: Chrome 90+, Firefox 90+, Safari 14+, Edge 90+
+- **Audio API**: MediaRecorder for live recording
+- **File API**: Drag & drop and file selection support
+
+---
+
+*The frontend provides an intuitive interface for the AI-driven vocal arrangement system, making professional vocal arrangement accessible through a modern web application.*

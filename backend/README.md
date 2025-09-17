@@ -1,166 +1,337 @@
 # AI-Driven Vocal Arranger Backend
 
 ## Overview
-This backend provides AI-powered vocal arrangement using OpenRouter's gpt-oss model. It segments freestyle vocals using WhisperX, extracts enhanced audio features, and uses LLM analysis to intelligently arrange segments into coherent song structures based on lyrics, energy, and musical characteristics.
+Flask-based backend that powers reference-based AI vocal arrangement. Uses OpenRouter's GPT models to intelligently arrange freestyle vocals by matching them to reference track structures, energy patterns, and timing characteristics.
 
 ## Tech Stack
-- Python 3.11+
-- Flask (REST API)
-- OpenRouter API (gpt-oss model for AI arrangement)
-- WhisperX (speech segmentation and transcription)
-- librosa (audio feature extraction)
-- python-dotenv, requests
+- **Python 3.11+**
+- **Flask** (RESTful API)
+- **OpenRouter API** (GPT models for intelligent arrangement)
+- **WhisperX** (High-accuracy speech transcription and segmentation)
+- **librosa** (Advanced audio feature extraction)
+- **scikit-learn** (Text similarity matching)
+- **soundfile** (Audio file processing)
+- **CORS** (Cross-origin resource sharing)
 
 ## Key Features
-- **AI-Driven Arrangement**: Uses gpt-oss LLM to analyze lyrics, energy, and mood for intelligent vocal arrangement
-- **Enhanced Audio Analysis**: Extracts energy, pitch, duration, mood, and structural hints from each vocal segment
-- **Multiple Genre Support**: Supports pop, hip-hop, R&B, and custom song structures
-- **Confidence Scoring**: AI provides confidence ratings for arrangement decisions
-- **User Feedback System**: Collects user ratings to improve AI performance over time
 
-## Folder Structure
+### 🎯 3-Step Processing Pipeline
+1. **Input Vocals Processing**: WhisperX segmentation → Feature extraction → Structural analysis
+2. **Reference Track Processing**: Reference analysis → Energy mapping → Timing extraction
+3. **AI-Powered Arrangement**: LLM analysis → Intelligent matching → Audio generation
+
+### 🤖 Advanced AI Integration
+- **OpenRouter GPT Models**: Sophisticated arrangement intelligence
+- **Reference-Based Analysis**: Matches input vocals to reference structure
+- **Energy Progression Modeling**: Maintains musical flow and dynamics
+- **Confidence Scoring**: AI provides arrangement quality metrics
+
+### 🎵 Enhanced Audio Analysis
+- **Multi-Feature Extraction**: Energy, pitch, tempo, spectral analysis
+- **Mood Detection**: Emotional categorization of vocal segments
+- **Structural Hints**: Automatic intro/verse/chorus/outro detection
+- **Text Analysis**: Keyword extraction, repetition detection, semantic analysis
+
+## Project Architecture
 ```
 backend/
-├── app.py                    # Main Flask application with API endpoints
+├── app.py                          # Main Flask application with 15+ API endpoints
 ├── audio_analysis/
-│   ├── arrangement.py        # AIVocalArranger class for LLM-based arrangement
-│   ├── llm_utils.py         # OpenRouterClient for gpt-oss API integration
-│   ├── extract_features.py  # Enhanced audio feature extraction
-│   └── whisperx_utils.py    # WhisperX transcription utilities
-├── data/                    # Arrangement feedback and logs
-├── uploads/audio/           # User uploaded audio files
-└── requirements.txt         # Python dependencies
+│   ├── arrangement.py              # AIVocalArranger with reference-based logic
+│   ├── llm_utils.py               # OpenRouterClient for GPT integration
+│   ├── extract_features.py        # Enhanced audio feature extraction
+│   ├── whisperx_utils.py          # WhisperX transcription utilities
+│   └── reference_alignment.py     # Reference processing & audio generation
+├── data/
+│   └── arrangement_feedback.json  # User feedback collection
+├── uploads/
+│   ├── audio/                     # Input vocals and reference tracks
+│   └── aligned/                   # Generated arranged audio files
+├── requirements.txt               # Python dependencies
+└── README.md                      # This file
 ```
 
-## Setup
+## Setup & Installation
 
-### 1. Clone and Navigate to Backend
+### Prerequisites
+- Python 3.11 or higher
+- OpenRouter API key
+- FFmpeg (for audio processing)
+
+### 1. Environment Setup
 ```bash
-git clone <repo-url>
+# Navigate to backend directory
 cd vocal-arranger/backend
+
+# Create virtual environment (recommended)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-### 2. Install Dependencies
-```bash
-pip install -r requirements.txt
-```
-
-### 3. Environment Variables
-Create a `.env` file with your OpenRouter API key:
-```bash
-# .env
-OPENROUTER_API_KEY=your_openrouter_api_key_here
-```
-
-Get your free API key from: https://openrouter.ai
-
-### 4. Install System Dependencies
-For audio processing:
+### 2. Install System Dependencies
 ```bash
 # macOS
 brew install ffmpeg
 
 # Ubuntu/Debian
 sudo apt-get install ffmpeg
+
+# Windows
+# Download FFmpeg from https://ffmpeg.org/download.html
 ```
 
-## Running the App
+### 3. Install Python Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Environment Variables
+Create `.env` file with your API credentials:
+```env
+# OpenRouter API Key (get from https://openrouter.ai)
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+```
+
+### 5. Run the Server
 ```bash
 python app.py
 ```
 
-The API will be available at `http://localhost:5000`
+Server runs at `http://localhost:5000` with CORS enabled for frontend integration.
 
 ## API Endpoints
 
-### Core Endpoints
+### 🎯 Core 3-Step Workflow
 
-#### `POST /segment`
-Upload and segment vocal audio file
-- **Input**: Multipart form with `vocals` file
-- **Output**: Enhanced segment features with AI analysis data
-- **Process**: WhisperX transcription → Audio feature extraction → Structural hints
+#### `POST /process_vocals`
+**Step 1: Input Vocals Processing**
+- **Input**: Multipart form with `vocals` audio file
+- **Process**: WhisperX transcription → Enhanced feature extraction → Structural analysis
+- **Output**: Segmented vocals with comprehensive feature data
+```json
+{
+  "segments": [...],
+  "vocals_path": "path/to/processed/vocals.wav",
+  "total_segments": 12,
+  "method": "whisperx_analysis"
+}
+```
 
-#### `POST /arrange`
-AI-powered vocal arrangement
-- **Input**: JSON with `segments`, optional `genre` and `structure`
-- **Output**: Intelligent arrangement with confidence score and reasoning
-- **Process**: gpt-oss LLM analyzes lyrics, energy, and musical structure
+#### `POST /process_reference`
+**Step 2: Reference Track Processing**
+- **Input**: Multipart form with `reference` audio file
+- **Process**: WhisperX analysis → Structure extraction → Energy mapping
+- **Output**: Reference track segments with timing and energy data
+```json
+{
+  "reference_segments": [...],
+  "reference_path": "path/to/reference.wav",
+  "total_segments": 8,
+  "method": "reference_analysis"
+}
+```
 
-#### `POST /arrange/llm_only`
-Pure LLM arrangement (same as `/arrange`)
-- **Input**: JSON with `segments` and optional `genre`
-- **Output**: AI arrangement with detailed analysis
+#### `POST /arrange_to_reference`
+**Step 3: AI-Powered Arrangement**
+- **Input**: JSON with `input_segments`, `reference_segments`, optional `genre`
+- **Process**: GPT analysis → Intelligent matching → Audio generation
+- **Output**: Arranged vocals with statistics and downloadable audio
+```json
+{
+  "arranged_segments": [...],
+  "ai_analysis": {
+    "confidence": 0.85,
+    "reasoning": "Matched high-energy segments to chorus sections...",
+    "method": "llm_reference_arrangement"
+  },
+  "arranged_audio_url": "/aligned/arranged_vocals.wav"
+}
+```
 
-#### `POST /arrangement/compare`
-Compare different AI arrangement approaches
-- **Input**: JSON with `segments` and `methods` array
-- **Output**: Multiple arrangements with similarity analysis
-
-#### `POST /arrangement/feedback`
-Submit user feedback on arrangements
-- **Input**: JSON with rating and arrangement data
-- **Output**: Success confirmation
+### 🔧 Utility Endpoints
 
 #### `GET /model_status`
 Check AI service availability
-- **Output**: Status of OpenRouter connection and available models
+```json
+{
+  "models": {
+    "ai_llm": true,
+    "openrouter": true
+  },
+  "services": {
+    "whisper": true,
+    "feature_extraction": true,
+    "reference_alignment": true
+  }
+}
+```
+
+#### `POST /arrangement/feedback`
+Submit user feedback for AI improvement
+```json
+{
+  "audio_id": "session_123",
+  "arrangement_type": "ai_reference",
+  "user_rating": 4,
+  "score": 0.85
+}
+```
+
+### 📁 File Serving
+
+#### `GET /audio/<filename>`
+Serve uploaded audio files
+
+#### `GET /aligned/<filename>`
+Serve generated arranged audio files
+
+## Core Components
+
+### AIVocalArranger (`arrangement.py`)
+**Main AI arrangement engine with reference-based logic**
+- `arrange_segments_to_reference()`: Core LLM-based arrangement
+- `_prepare_reference_descriptions()`: Reference structure analysis
+- `_create_reference_arrangement_prompt()`: Specialized LLM prompts
+- `_parse_reference_arrangement_response()`: AI response processing
+
+### OpenRouterClient (`llm_utils.py`)
+**GPT model integration for intelligent arrangement**
+- Connection management and error handling
+- Token optimization and response parsing
+- Model availability checking
+
+### Enhanced Feature Extraction (`extract_features.py`)
+**Comprehensive audio analysis pipeline**
+- Energy categorization (5 levels: very low to very high)
+- Pitch analysis with categorical classification
+- Mood detection (party, intense, emotional, uplifting, neutral)
+- Structural hint detection (intro, hook, outro patterns)
+- Text analysis (repetition, keywords, word count metrics)
+
+### Reference Alignment (`reference_alignment.py`)
+**Reference processing and audio generation**
+- `process_reference_track()`: Extract reference structure
+- `align_to_reference()`: Match segments to reference timing
+- `create_arranged_audio()`: Generate final audio files
 
 ## AI Arrangement Process
 
-1. **Audio Upload** → WhisperX segments vocals and transcribes lyrics
-2. **Feature Extraction** → Analyzes energy, pitch, mood, repetition, structural hints
-3. **LLM Analysis** → gpt-oss processes segment descriptions and musical knowledge
-4. **Intelligent Arrangement** → AI orders segments considering:
-   - Energy progression (build-ups, climaxes)
-   - Lyrical flow and semantic meaning
-   - Musical structure (intro/verse/chorus/outro)
-   - Genre conventions and song templates
-5. **Confidence Scoring** → AI rates its own arrangement decisions
-
-## Example Workflow
-
+### 1. Input Analysis
 ```python
-# 1. Upload vocal file
-POST /segment
-→ Returns segments with enhanced features
+# WhisperX segments vocals
+segments = transcribe_with_whisperx(vocals_path)
 
-# 2. AI arrangement
-POST /arrange
-{
-  "segments": [...],
-  "genre": "pop",
-  "structure": "standard_pop"
-}
-→ Returns intelligent arrangement with 85% confidence
-
-# 3. User feedback
-POST /arrangement/feedback
-{
-  "user_rating": 4,
-  "arrangement_type": "ai_llm"
-}
+# Extract comprehensive features
+features = extract_segment_features(vocals_path, segments)
+# → Energy, pitch, mood, structural hints, text analysis
 ```
 
-## Development
+### 2. Reference Processing
+```python
+# Analyze reference track structure
+reference_segments = process_reference_track(reference_path)
+# → Timing patterns, energy progression, structural mapping
+```
 
-### Code Formatting
+### 3. LLM-Based Arrangement
+```python
+# GPT analyzes both input and reference
+arrangement = arrange_segments_to_reference(
+    input_segments, reference_segments, genre_hint
+)
+# → Intelligent matching based on energy, content, structure
+```
+
+### 4. Audio Generation
+```python
+# Create arranged audio file
+audio_path = create_arranged_audio(
+    vocals_path, arranged_segments, output_path
+)
+# → High-quality audio preserving original vocal characteristics
+```
+
+## Enhanced Features
+
+### 🎵 Audio Analysis Features
+- **Energy Categorization**: 5-level energy classification with thresholds
+- **Pitch Analysis**: Frequency-based pitch categorization 
+- **Mood Detection**: Keyword-based emotional analysis
+- **Structural Hints**: Pattern recognition for song sections
+- **Text Characteristics**: Repetition analysis, keyword extraction
+
+### 🤖 AI Intelligence
+- **Reference-Aware Prompts**: Specialized LLM instructions for reference matching
+- **Energy Progression**: Maintains musical flow and dynamics
+- **Confidence Scoring**: AI self-assessment of arrangement quality
+- **Error Recovery**: Graceful fallback to simpler arrangements
+
+### 📊 Analytics & Feedback
+- **Usage Metrics**: Track processing times and success rates
+- **User Feedback**: 5-star rating system for arrangement quality
+- **Arrangement Statistics**: Match rates, confidence scores, usage data
+- **Continuous Learning**: Feedback collection for AI improvement
+
+## Performance Metrics
+
+### Technical Performance
+- **Processing Speed**: Varies by audio length; typically 10-30s for vocal segmentation, 5-15s for reference analysis
+- **AI Response Time**: 15-45s for arrangement generation (depends on OpenRouter API availability)
+- **Audio Quality**: Preserves original vocal characteristics during arrangement
+- **Memory Usage**: Handles typical vocal files (<10MB) efficiently
+
+### Quality Metrics
+- **Segmentation Accuracy**: Generally good phrase identification with WhisperX
+- **Arrangement Confidence**: AI provides confidence scores (varies by content complexity)
+- **User Feedback**: Collects user ratings for continuous improvement
+- **API Reliability**: Dependent on external services (OpenRouter, WhisperX)
+
+## Development Tools
+
+### Code Quality
 ```bash
+# Format code
 black backend/
-```
 
-### Linting
-```bash
+# Lint code  
 flake8 backend/
+
+# Type checking
+mypy backend/
 ```
 
 ### Testing
 ```bash
+# Run tests
 pytest backend/tests/
+
+# Test with coverage
+pytest --cov=backend backend/tests/
 ```
 
-## Success Metrics
-- **Segmentation Accuracy**: >95% correct vocal phrase identification
-- **Processing Speed**: <2x real-time for segmentation
-- **AI Confidence**: Average >70% arrangement confidence
-- **User Satisfaction**: Target >4/5 user rating
+### Debugging
+```bash
+# Run with debug mode
+FLASK_ENV=development python app.py
+
+# Enable verbose logging
+export LOG_LEVEL=DEBUG
+```
+
+## Error Handling
+
+- **API Failures**: Graceful fallback when OpenRouter is unavailable
+- **Audio Processing Errors**: Detailed error messages with recovery suggestions
+- **File Upload Issues**: Comprehensive validation and error reporting
+- **Memory Management**: Automatic cleanup of temporary files
+
+## Security Features
+
+- **Input Validation**: Strict validation of all file uploads and API inputs
+- **Rate Limiting**: Prevents API abuse and ensures fair usage
+- **Error Sanitization**: Safe error messages without exposing system details
+- **CORS Configuration**: Proper cross-origin resource sharing setup
+
+---
+
+*The backend provides a robust, scalable foundation for AI-driven vocal arrangement with professional-grade audio processing and intelligent arrangement capabilities.*
