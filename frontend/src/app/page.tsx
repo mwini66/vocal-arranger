@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import AudioPlayer from "../components/ui/AudioPlayer";
 import FeedbackModal, { ComprehensiveFeedback } from "../components/ui/FeedbackModal";
+import WaveformComparison from "../components/ui/WaveformComparison";
 
 // Interface for segment features - extracted from AIVocalArranger since we only need the type
 export interface EnhancedSegmentFeature {
@@ -76,6 +77,11 @@ export default function Home() {
   const audioChunks = useRef<Blob[]>([]);
   const vocalsInputRef = useRef<HTMLInputElement>(null);
   const referenceInputRef = useRef<HTMLInputElement>(null);
+
+  // State for waveform visualization
+  const [inputAudioUrl, setInputAudioUrl] = useState<string | null>(null);
+  const [referenceAudioUrl, setReferenceAudioUrl] = useState<string | null>(null);
+  const [alignedAudioUrl, setAlignedAudioUrl] = useState<string | null>(null);
 
   const GENRE_OPTIONS = [
     { value: "", label: "Auto-detect" },
@@ -176,6 +182,9 @@ export default function Home() {
       // Store original segments for feedback
       setOriginalSegments([...data.segments]);
 
+      // Set input audio URL for waveform visualization
+      setInputAudioUrl(recordedUrl || URL.createObjectURL(vocalsFile));
+
     } catch (err) {
       setError("Failed to process input vocals");
     } finally {
@@ -213,6 +222,9 @@ export default function Home() {
       setReferenceSegments(data.reference_segments);
       // Store the reference path for later use
       sessionStorage.setItem('referencePath', data.reference_path);
+
+      // Set reference audio URL for waveform visualization
+      setReferenceAudioUrl(URL.createObjectURL(referenceFile));
 
     } catch (err) {
       setError("Failed to process reference vocals");
@@ -277,6 +289,9 @@ export default function Home() {
         },
         aligned_audio_path: data.arranged_audio_url
       });
+
+      // Set aligned audio URL for waveform visualization
+      setAlignedAudioUrl(data.arranged_audio_url);
 
     } catch (err) {
       setError("Failed to perform temporal alignment");
@@ -872,6 +887,20 @@ export default function Home() {
           }}
           sessionId={sessionId}
         />
+      )}
+
+      {/* Waveform Comparison Section */}
+      {(inputAudioUrl || referenceAudioUrl || alignedAudioUrl) && (
+        <div className="max-w-6xl mx-auto mb-8">
+          <WaveformComparison
+            inputAudioUrl={inputAudioUrl}
+            referenceAudioUrl={referenceAudioUrl}
+            arrangedAudioUrl={alignedAudioUrl ? `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}${alignedAudioUrl}` : undefined}
+            inputSegments={originalSegments || []}
+            referenceSegments={referenceSegments || []}
+            arrangedSegments={alignmentResult?.aligned_segments || []}
+          />
+        </div>
       )}
     </main>
   );
