@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 
-from audio_analysis.arrangement import AIVocalArranger
 from audio_analysis.extract_features import extract_segment_features
 from audio_analysis.reference_alignment import TemporalAligner
 from audio_analysis.whisperx_utils import transcribe_with_whisperx
@@ -26,9 +25,6 @@ if not os.path.exists(FEEDBACK_FILE):
     with open(FEEDBACK_FILE, "w") as f:
         json.dump([], f)
 
-# Initialize AI vocal arranger
-ai_arranger = AIVocalArranger()
-
 # Initialize temporal aligner (the main alignment system)
 temporal_aligner = TemporalAligner(similarity_threshold=0.3)
 
@@ -43,42 +39,11 @@ def serve_aligned_audio(filename):
     return send_from_directory(ALIGNED_FOLDER, filename)
 
 
-@app.route("/arrange", methods=["POST"])
-def arrange():
-    """
-    Arrange segments using AI/LLM analysis based on content, energy, and flow.
-    This creates an intelligent ordering of segments without reference timing.
-    Used by legacy AIVocalArranger component.
-    """
-    data = request.get_json()
-    if not data or "segments" not in data:
-        return jsonify({"error": "Missing segments in request"}), 400
-
-    segments = data["segments"]
-    target_structure = data.get("structure", "auto")
-    genre_hint = data.get("genre")
-
-    try:
-        arrangement, confidence, analysis = ai_arranger.arrange_segments(
-            segments, target_structure, genre_hint
-        )
-
-        return jsonify({
-            "arrangement": arrangement,
-            "confidence": confidence,
-            "method": "ai_arrangement",
-            "analysis": analysis,
-            "structure": analysis.get('sections', {})
-        }), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
 @app.route("/arrangement/feedback", methods=["POST"])
 def arrangement_feedback():
     """
-    Enhanced feedback system for AI arrangement quality assessment.
-    Collects comprehensive data for training future end-to-end AI models.
+    Feedback system for temporal alignment quality assessment.
+    Collects data for improving the temporal alignment system.
 
     Expected JSON payload:
     {
@@ -132,13 +97,14 @@ def arrangement_feedback():
             "would_use_again": data.get("would_use_again", True)
         },
 
-        # AI arrangement data for model training
-        "arrangement_analysis": {
+        # Temporal alignment data for system improvement
+        "alignment_analysis": {
             "original_arrangement": data["arrangement_data"].get("original_arrangement", []),
-            "ai_confidence": data["arrangement_data"].get("ai_analysis", {}).get("confidence", 0),
-            "ai_reasoning": data["arrangement_data"].get("ai_analysis", {}).get("reasoning", ""),
-            "arrangement_method": data["arrangement_data"].get("ai_analysis", {}).get("method", "unknown"),
-            "genre_hint": data["arrangement_data"].get("genre", "auto-detect")
+            "confidence": data["arrangement_data"].get("ai_analysis", {}).get("confidence", 0),
+            "reasoning": data["arrangement_data"].get("ai_analysis", {}).get("reasoning", ""),
+            "method": data["arrangement_data"].get("ai_analysis", {}).get("method", "temporal_alignment"),
+            "match_rate": data["arrangement_data"].get("reference_structure", {}).get("match_rate", 0),
+            "silence_percentage": data["arrangement_data"].get("reference_structure", {}).get("silence_percentage", 0)
         },
 
         # Segment-level training data
@@ -153,10 +119,10 @@ def arrangement_feedback():
                 data["arrangement_data"].get("reference_segments", [])
             ) if data["arrangement_data"].get("reference_segments") else None,
 
-            # Arrangement pattern analysis
-            "arrangement_pattern": _analyze_arrangement_pattern(
+            "alignment_pattern": _analyze_arrangement_pattern(
                 data["arrangement_data"].get("original_segments", []),
-                data["arrangement_data"].get("arranged_segments", [])
+                data["arrangement_data"].get("arranged_segments", []),
+                data["arrangement_data"].get("reference_segments", [])
             ),
 
             # Feature correlations for training
@@ -165,17 +131,14 @@ def arrangement_feedback():
             )
         },
 
-        # Model performance metrics
-        "model_performance": {
+        # System performance metrics
+        "system_performance": {
             "processing_successful": True,
             "segments_used": len(data["arrangement_data"].get("arranged_segments", [])),
             "segments_available": len(data["arrangement_data"].get("original_segments", [])),
             "usage_efficiency": len(data["arrangement_data"].get("arranged_segments", [])) / max(1, len(
                 data["arrangement_data"].get("original_segments", []))),
-            "reference_match_quality": data["arrangement_data"].get("reference_structure", {}).get("matched_segments",
-                                                                                                   0) / max(1, len(
-                data["arrangement_data"].get("reference_segments", []))) if data["arrangement_data"].get(
-                "reference_segments") else None
+            "temporal_match_quality": data["arrangement_data"].get("reference_structure", {}).get("match_rate", 0)
         }
     }
 
@@ -188,13 +151,13 @@ def arrangement_feedback():
             json.dump(feedback_list, f, indent=2)
             f.truncate()
 
-        # Also save detailed training data separately for ML pipeline
+        # Also save detailed training data separately
         _save_training_data(feedback_record)
 
         return jsonify({
             "status": "success",
             "feedback_id": feedback_record["feedback_id"],
-            "message": "Comprehensive feedback recorded for model training"
+            "message": "Feedback recorded for system improvement"
         }), 200
 
     except Exception as e:
@@ -246,7 +209,7 @@ def _extract_segment_features_for_training(segments):
     return training_features
 
 
-def _analyze_arrangement_pattern(original_segments, arranged_segments):
+def _analyze_arrangement_pattern(original_segments, arranged_segments, reference_segments):
     """Analyze how segments were rearranged for pattern learning"""
     if not original_segments or not arranged_segments:
         return {}
@@ -265,8 +228,24 @@ def _analyze_arrangement_pattern(original_segments, arranged_segments):
                 })
                 break
 
+    # Analyze reference segments for additional pattern insights
+    reference_mapping = []
+    if reference_segments:
+        for ref_idx, ref_segment in enumerate(reference_segments):
+            # Find this segment in the arranged list
+            for arranged_idx, arranged_segment in enumerate(arranged_segments):
+                if (ref_segment.get("text", "") == arranged_segment.get("text", "") and
+                        abs(ref_segment.get("start", 0) - arranged_segment.get("start", 0)) < 0.1):
+                    reference_mapping.append({
+                        "reference_position": ref_idx,
+                        "arranged_position": arranged_idx,
+                        "movement_distance": arranged_idx - ref_idx
+                    })
+                    break
+
     return {
         "mapping": arrangement_mapping,
+        "reference_mapping": reference_mapping,
         "total_segments": len(arranged_segments),
         "segments_reordered": len([m for m in arrangement_mapping if m["movement_distance"] != 0]),
         "average_movement": sum([abs(m["movement_distance"]) for m in arrangement_mapping]) / max(1,
@@ -389,39 +368,28 @@ def _save_training_data(feedback_record):
 @app.route("/model_status", methods=["GET"])
 def model_status():
     """
-    Get status of available AI services for vocal arrangement and reference alignment.
-    Returns: { "models": {...}, "services": {...}, "arrangement_methods": [...] }
+    Get status of available services for temporal alignment.
+    Returns: { "services": {...}, "alignment_features": {...} }
     """
     try:
         status = {
-            "models": {
-                "ai_llm": False,
-                "openrouter": False
-            },
             "services": {
-                "openrouter": False,
                 "whisper": True,
                 "feature_extraction": True,
-                "reference_alignment": True
+                "temporal_alignment": True
             },
-            "arrangement_methods": ["ai", "reference_alignment"],
-            "structure_templates": list(ai_arranger.structure_templates.keys()),
+            "arrangement_methods": ["temporal_alignment"],
             "alignment_features": {
                 "reference_processing": True,
                 "text_similarity_matching": True,
                 "audio_time_stretching": True,
-                "segment_alignment": True
-            }
+                "segment_alignment": True,
+                "windowed_matching": True,
+                "quality_optimization": True
+            },
+            "supported_formats": ["wav", "mp3", "m4a", "flac"],
+            "similarity_threshold": temporal_aligner.similarity_threshold
         }
-
-        # Check OpenRouter AI availability
-        try:
-            ai_available = ai_arranger.llm_client.is_available()
-            status["models"]["ai_llm"] = ai_available
-            status["models"]["openrouter"] = ai_available
-            status["services"]["openrouter"] = ai_available
-        except Exception:
-            pass
 
         return jsonify(status), 200
 
