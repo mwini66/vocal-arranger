@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from datetime import datetime
 
@@ -9,6 +10,10 @@ from flask_cors import CORS
 from audio_analysis.extract_features import extract_segment_features
 from audio_analysis.reference_alignment import TemporalAligner
 from audio_analysis.whisperx_utils import transcribe_with_whisperx
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 app = Flask(__name__)
@@ -478,18 +483,26 @@ def arrange_to_reference():
     input_segments = data["input_segments"]
     reference_segments = data["reference_segments"]
     input_vocals_path = data.get("input_vocals_path")
-    genre_hint = data.get("genre")  # Not used in temporal alignment but kept for compatibility
+    custom_threshold = data.get("similarity_threshold")
 
     if not input_vocals_path:
         return jsonify({"error": "input_vocals_path is required for temporal alignment"}), 400
 
     try:
+        # Create temporal aligner with custom threshold if provided
+        if custom_threshold is not None:
+            aligner = TemporalAligner(similarity_threshold=custom_threshold)
+            logger.info(f"Using custom similarity threshold: {custom_threshold:.1%}")
+        else:
+            aligner = temporal_aligner  # Use global instance with default threshold
+            logger.info(f"Using default similarity threshold: {aligner.similarity_threshold:.1%}")
+
         # Create output filename
         output_filename = f"temporal_aligned_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
         output_path = os.path.join(ALIGNED_FOLDER, output_filename)
 
         # Perform temporal alignment
-        aligned_segments, alignment_info, aligned_audio_path = temporal_aligner.align_to_reference_timing(
+        aligned_segments, alignment_info, aligned_audio_path = aligner.align_to_reference_timing(
             input_segments,
             reference_segments,
             input_vocals_path,

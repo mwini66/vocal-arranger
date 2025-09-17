@@ -83,6 +83,10 @@ export default function Home() {
     const [referenceAudioUrl, setReferenceAudioUrl] = useState<string | null>(null);
     const [alignedAudioUrl, setAlignedAudioUrl] = useState<string | null>(null);
 
+    // State for similarity threshold control
+    const [similarityThreshold, setSimilarityThreshold] = useState<number>(0.3); // Default 30%
+    const [useCustomThreshold, setUseCustomThreshold] = useState<boolean>(false);
+
     const GENRE_OPTIONS = [
         {value: "", label: "Auto-detect"},
         {value: "pop", label: "Pop"},
@@ -253,7 +257,9 @@ export default function Home() {
                     input_segments: segments,
                     reference_segments: referenceSegments,
                     input_vocals_path: inputVocalsPath,
-                    genre: selectedGenre || undefined
+                    genre: selectedGenre || undefined,
+                    // Send custom threshold if enabled
+                    similarity_threshold: useCustomThreshold ? similarityThreshold : undefined
                 })
             });
 
@@ -536,6 +542,79 @@ export default function Home() {
                             Align your segments to match reference track timing with intelligent windowed text and audio
                             similarity matching
                         </p>
+
+                        {/* Similarity Threshold Control */}
+                        <div className="mb-6 p-4 bg-gray-700/30 rounded-lg">
+                            <h3 className="text-lg font-semibold text-purple-300 mb-3">Matching Quality Control</h3>
+
+                            <div className="space-y-4">
+                                {/* Enable Custom Threshold Toggle */}
+                                <div className="flex items-center gap-3">
+                                    <input
+                                        type="checkbox"
+                                        id="useCustomThreshold"
+                                        checked={useCustomThreshold}
+                                        onChange={(e) => setUseCustomThreshold(e.target.checked)}
+                                        className="w-4 h-4 text-purple-600 bg-gray-600 border-gray-500 rounded focus:ring-purple-500"
+                                    />
+                                    <label htmlFor="useCustomThreshold" className="text-gray-300 text-sm">
+                                        Use custom similarity threshold (segments below threshold become silence)
+                                    </label>
+                                </div>
+
+                                {/* Threshold Slider */}
+                                {useCustomThreshold && (
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-sm text-gray-300">
+                                                Minimum Similarity Required: {(similarityThreshold * 100).toFixed(0)}%
+                                            </label>
+                                            <span className="text-xs text-gray-400">
+                                                Default: 30%
+                                            </span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="0.1"
+                                            max="0.9"
+                                            step="0.05"
+                                            value={similarityThreshold}
+                                            onChange={(e) => setSimilarityThreshold(parseFloat(e.target.value))}
+                                            className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
+                                        />
+                                        <div className="flex justify-between text-xs text-gray-400">
+                                            <span>10% (Very Lenient)</span>
+                                            <span>30% (Balanced)</span>
+                                            <span>50% (Moderate)</span>
+                                            <span>70% (Strict)</span>
+                                            <span>90% (Very Strict)</span>
+                                        </div>
+                                        <div className="text-xs text-gray-400 mt-2">
+                                            {similarityThreshold <= 0.2 ? (
+                                                <span className="text-green-400">Very lenient - most segments will match</span>
+                                            ) : similarityThreshold <= 0.4 ? (
+                                                <span className="text-blue-400">Balanced - good mix of matches and silence</span>
+                                            ) : similarityThreshold <= 0.6 ? (
+                                                <span className="text-yellow-400">Moderate - only decent matches accepted</span>
+                                            ) : similarityThreshold <= 0.8 ? (
+                                                <span className="text-orange-400">Strict - only good matches accepted</span>
+                                            ) : (
+                                                <span className="text-red-400">Very strict - only excellent matches accepted</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Info Box */}
+                                <div className="bg-blue-900/20 p-3 rounded border-l-2 border-blue-400 text-xs text-blue-200">
+                                    <div className="font-semibold mb-1">How it works:</div>
+                                    <div>• Each segment gets a similarity score (0-100%) based on text, audio, and context matching</div>
+                                    <div>• Segments above your threshold use your vocals at reference timing</div>
+                                    <div>• Segments below threshold become silence (preserving reference track structure)</div>
+                                    <div>• Higher thresholds = more silence, but better quality matches</div>
+                                </div>
+                            </div>
+                        </div>
 
                         {/* Temporal Align Button */}
                         <button
