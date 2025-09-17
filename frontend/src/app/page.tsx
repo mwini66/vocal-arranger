@@ -710,14 +710,6 @@ export default function Home() {
                                                         }`}>
                                                             {overallSimilarity.toFixed(1)}% overall
                                                         </div>
-                                                        <div className={`px-2 py-1 rounded text-xs ${
-                                                            matchType === 'high_confidence' ? 'bg-green-700 text-green-200' :
-                                                                matchType === 'windowed_match' ? 'bg-purple-700 text-purple-200' :
-                                                                    matchType === 'forced_match' ? 'bg-orange-700 text-orange-200' :
-                                                                        'bg-gray-700 text-gray-200'
-                                                        }`}>
-                                                            {matchType.replace('_', ' ')}
-                                                        </div>
                                                     </div>
                                                 )}
                                             </div>
