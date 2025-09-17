@@ -73,7 +73,7 @@ export default function WaveformVisualizer({
         const response = await fetch(audioUrl);
         const arrayBuffer = await response.arrayBuffer();
         
-        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
         const buffer = await audioContext.decodeAudioData(arrayBuffer);
         
         setAudioBuffer(buffer);
@@ -149,9 +149,10 @@ export default function WaveformVisualizer({
 
       if (segmentWidth < 1) return; // Skip very small segments
 
-      // Get segment color
+      // Get segment color - now using the color passed from WaveformComparison
       let color = segment.color;
       if (!color) {
+        // Fallback to original logic if no color is provided
         if (segment.isSilence) {
           color = '#6B7280'; // Gray for silence
         } else if (type === 'arranged' && segment.originalIndex !== undefined) {
@@ -165,9 +166,16 @@ export default function WaveformVisualizer({
       ctx.fillStyle = color + '40'; // Add transparency
       ctx.fillRect(startX, 0, segmentWidth, canvasHeight);
 
-      // Draw segment border
+      // Draw segment border with different styles for matched/unmatched
       ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
+      if (type === 'arranged' && segment.isMatched === false && !segment.isSilence) {
+        // Dashed border for unmatched segments in arranged view
+        ctx.setLineDash([5, 3]);
+        ctx.lineWidth = 3;
+      } else {
+        ctx.setLineDash([]);
+        ctx.lineWidth = 2;
+      }
       ctx.strokeRect(startX, 0, segmentWidth, canvasHeight);
 
       // Draw segment number/label
@@ -179,12 +187,23 @@ export default function WaveformVisualizer({
         let label;
         if (segment.isSilence) {
           label = '—';
-        } else if (type === 'arranged' && segment.originalIndex !== undefined) {
-          label = `${segment.originalIndex + 1}`;
+        } else if (type === 'input') {
+          // Input segments: simple sequential numbering
+          label = `${index + 1}`;
+        } else if (type === 'reference') {
+          // Reference segments: R prefix
+          label = `R${index + 1}`;
+        } else if (type === 'arranged') {
+          // Arranged segments: show original input index
+          if (segment.originalIndex !== undefined) {
+            label = `${segment.originalIndex + 1}`;
+          } else {
+            label = `${index + 1}`;
+          }
         } else {
           label = `${index + 1}`;
         }
-        
+
         ctx.fillText(label, startX + segmentWidth / 2, 20);
       }
 
@@ -196,9 +215,18 @@ export default function WaveformVisualizer({
           ctx.font = 'bold 16px monospace';
           ctx.textAlign = 'left';
           ctx.fillText('✓', startX + 5, canvasHeight - 10);
+        } else {
+          // Draw X for unmatched segments
+          ctx.fillStyle = '#EF4444';
+          ctx.font = 'bold 16px monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText('✗', startX + 5, canvasHeight - 10);
         }
       }
     });
+
+    // Reset line dash for playhead
+    ctx.setLineDash([]);
 
     // Draw playhead
     if (duration > 0) {
@@ -252,7 +280,7 @@ export default function WaveformVisualizer({
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const clickTime = (x / canvas.width) * duration;
-    
+
     audioRef.current.currentTime = clickTime;
     setCurrentTime(clickTime);
   };

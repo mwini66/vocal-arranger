@@ -26,7 +26,30 @@ export default function WaveformComparison({
   const [selectedView, setSelectedView] = useState<'stacked' | 'tabbed'>('stacked');
   const [activeTab, setActiveTab] = useState<'input' | 'reference' | 'arranged'>('input');
 
-  // Convert segments to waveform format and add tracking info
+  // Create a color mapping between reference and arranged segments for visual consistency
+  const createSegmentColorMapping = () => {
+    const colorMap = new Map<string, string>();
+    const SEGMENT_COLORS = [
+      '#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#06B6D4',
+      '#F97316', '#84CC16', '#EC4899', '#6B7280', '#14B8A6', '#DC2626',
+      '#7C3AED', '#059669', '#D97706', '#0284C7', '#DB2777', '#65A30D',
+      '#0891B2', '#7C2D12'
+    ];
+
+    // First, assign colors to reference segments
+    referenceSegments.forEach((refSeg, index) => {
+      const key = refSeg.text.toLowerCase().trim();
+      if (key && key !== '[silence]') {
+        colorMap.set(key, SEGMENT_COLORS[index % SEGMENT_COLORS.length]);
+      }
+    });
+
+    return { colorMap, SEGMENT_COLORS };
+  };
+
+  const { colorMap, SEGMENT_COLORS } = createSegmentColorMapping();
+
+  // Convert segments to waveform format with proper color matching
   const convertToWaveformSegments = (
     segments: EnhancedSegmentFeature[], 
     type: 'input' | 'reference' | 'arranged'
@@ -35,22 +58,50 @@ export default function WaveformComparison({
       let originalIndex = index;
       let isMatched = false;
       let isSilence = false;
+      let color = '#6B7280'; // Default gray color
 
-      // For arranged segments, try to find original index and match status
-      if (type === 'arranged') {
+      // Handle different segment types
+      if (type === 'input') {
+        // Input segments: no color coding, just neutral gray
+        color = '#6B7280'; // Gray for all input segments
+      } else if (type === 'reference') {
+        // Reference segments: use distinct colors and will be the source for matching
+        const textKey = segment.text.toLowerCase().trim();
+        const mappedColor = colorMap.get(textKey);
+        if (mappedColor) {
+          color = mappedColor;
+        } else {
+          color = SEGMENT_COLORS[index % SEGMENT_COLORS.length];
+        }
+      } else if (type === 'arranged') {
+        // Arranged segments: show input labels but use reference colors for matches
         isSilence = segment.text === '[SILENCE]';
         
-        if (!isSilence) {
-          // Find the original segment in input segments
-          const matchedInput = inputSegments.find(inputSeg => 
-            inputSeg.text === segment.text || 
-            (inputSeg.text && segment.text && 
-             inputSeg.text.toLowerCase().trim() === segment.text.toLowerCase().trim())
+        if (isSilence) {
+          color = '#6B7280'; // Gray for silence
+        } else {
+          // Find the matching reference segment for color
+          const textKey = segment.text.toLowerCase().trim();
+          const mappedColor = colorMap.get(textKey);
+
+          if (mappedColor) {
+            color = mappedColor; // Use reference color
+            isMatched = true;
+          } else {
+            // Unmatched segment - use distinct color
+            color = '#FF6B6B'; // Red-ish for unmatched
+            isMatched = false;
+          }
+
+          // Find the original input segment index for labeling
+          const matchedInput = inputSegments.find(inputSeg =>
+            inputSeg.text && segment.text &&
+            inputSeg.text.toLowerCase().trim() === segment.text.toLowerCase().trim()
           );
           
           if (matchedInput) {
-            originalIndex = inputSegments.indexOf(matchedInput);
-            isMatched = true;
+            const inputIndex = inputSegments.indexOf(matchedInput);
+            originalIndex = inputIndex; // Store input index for labeling
           }
         }
       }
@@ -64,7 +115,8 @@ export default function WaveformComparison({
         energy: segment.energy,
         pitch: segment.pitch,
         isMatched,
-        isSilence
+        isSilence,
+        color
       };
     });
   };
@@ -117,18 +169,18 @@ export default function WaveformComparison({
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
         <div>
           <div className="font-medium text-teal-300 mb-2">🎤 Input Segments</div>
-          <div className="text-gray-400">Original order (1, 2, 3...)</div>
-          <div className="text-gray-400">Colors represent segment sequence</div>
+          <div className="text-gray-400">Simple numbering (1, 2, 3...)</div>
+          <div className="text-gray-400">No color coding - neutral gray</div>
         </div>
         <div>
           <div className="font-medium text-blue-300 mb-2">🎵 Reference Segments</div>
-          <div className="text-gray-400">Target structure timing</div>
-          <div className="text-gray-400">Shows desired arrangement pattern</div>
+          <div className="text-gray-400">Labeled with R prefix (R1, R2, R3...)</div>
+          <div className="text-gray-400">Distinct colors establish match patterns</div>
         </div>
         <div>
           <div className="font-medium text-purple-300 mb-2">⚡ Arranged Segments</div>
-          <div className="text-gray-400">Numbers show original positions</div>
-          <div className="text-gray-400">✓ = matched, — = silence padding</div>
+          <div className="text-gray-400">Shows input numbers (1, 2, 3...)</div>
+          <div className="text-gray-400">Uses reference colors where matched</div>
         </div>
       </div>
       
