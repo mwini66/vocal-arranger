@@ -1,13 +1,12 @@
 import difflib
 import logging
-from typing import List, Dict, Tuple, Optional
 import re
+from typing import List, Dict, Tuple
 
 import librosa
 import numpy as np
 import soundfile as sf
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
 from .extract_features import extract_segment_features, convert_numpy_types
 from .whisperx_utils import transcribe_with_whisperx
@@ -74,7 +73,8 @@ class TemporalAligner:
             Tuple of (aligned_segments, alignment_info, output_audio_path)
         """
         try:
-            logger.info(f"Aligning {len(input_segments)} input segments to {len(reference_segments)} reference segments")
+            logger.info(
+                f"Aligning {len(input_segments)} input segments to {len(reference_segments)} reference segments")
 
             # Step 1: Find optimal sequence alignment
             alignment_result = self._find_optimal_sequence_alignment(input_segments, reference_segments)
@@ -197,11 +197,14 @@ class TemporalAligner:
         """
         Find the best sequence alignment that maximizes overall similarity
         while maintaining sequence order as much as possible.
+
+        FIXED: Now ensures ALL input segments are used, even if similarity is low.
         """
         n_ref, n_input = similarity_matrix.shape
 
         # Try different alignment strategies and pick the best one
         strategies = [
+            self._comprehensive_alignment,
             self._greedy_alignment,
             self._dynamic_programming_alignment,
             self._sequence_aware_alignment
@@ -218,7 +221,8 @@ class TemporalAligner:
                 )
                 score = self._score_alignment(alignment, similarity_matrix)
 
-                logger.info(f"Strategy {strategy.__name__}: score = {score:.3f}")
+                logger.info(
+                    f"Strategy {strategy.__name__}: score = {score:.3f}, coverage = {sum(alignment['reference_coverage'])}/{len(alignment['reference_coverage'])}")
 
                 if score > best_score:
                     best_score = score
@@ -228,16 +232,483 @@ class TemporalAligner:
                 continue
 
         if best_alignment is None:
-            # Fallback: create empty alignment
-            best_alignment = {
-                'matches': [],
-                'input_order': list(range(n_input)),
-                'reference_coverage': [False] * n_ref,
-                'total_similarity': 0.0
-            }
+            # Fallback: create comprehensive alignment that uses all segments
+            best_alignment = self._create_fallback_alignment(n_input, n_ref)
 
-        logger.info(f"Best alignment score: {best_score:.3f}")
+        # Ensure all input segments are used somewhere
+        best_alignment = self._ensure_complete_coverage(
+            best_alignment, similarity_matrix, input_segments, reference_segments
+        )
+
+        logger.info(
+            f"Final alignment: {best_score:.3f} score, {sum(best_alignment['reference_coverage'])}/{len(best_alignment['reference_coverage'])} reference coverage, {len([m for m in best_alignment['matches'] if m['input_idx'] is not None])}/{len(input_segments)} input usage")
         return best_alignment
+
+    def _comprehensive_alignment(
+            self,
+            similarity_matrix: np.ndarray,
+            input_texts: List[str],
+            ref_texts: List[str],
+            input_segments: List[Dict],
+            reference_segments: List[Dict]
+    ) -> Dict:
+        """
+        Comprehensive alignment that ensures ALL input segments are used.
+        Uses a two-pass approach:
+        1. Match high-similarity segments first
+        2. Force remaining segments into best available positions
+        """
+        n_ref, n_input = similarity_matrix.shape
+        matches = []
+        used_input = set()
+
+        logger.info(f"Starting comprehensive alignment: {n_input} input -> {n_ref} reference segments")
+
+        # Pass 1: High-confidence matches (above threshold)
+        high_confidence_matches = []
+        for ref_idx in range(n_ref):
+            best_input_idx = None
+            best_similarity = 0.0
+
+            for input_idx in range(n_input):
+                if input_idx not in used_input:
+                    similarity = similarity_matrix[ref_idx, input_idx]
+                    if similarity > self.similarity_threshold and similarity > best_similarity:
+                        best_similarity = similarity
+                        best_input_idx = input_idx
+
+            if best_input_idx is not None:
+                high_confidence_matches.append({
+                    'reference_idx': ref_idx,
+                    'input_idx': best_input_idx,
+                    'similarity': best_similarity,
+                    'is_matched': True,
+                    'match_type': 'high_confidence'
+                })
+                used_input.add(best_input_idx)
+            else:
+                high_confidence_matches.append({
+                    'reference_idx': ref_idx,
+                    'input_idx': None,
+                    'similarity': 0.0,
+                    'is_matched': False,
+                    'match_type': 'unmatched'
+                })
+
+        logger.info(f"High-confidence matches: {len([m for m in high_confidence_matches if m['is_matched']])}/{n_ref}")
+
+        # Pass 2: Force remaining input segments into best available positions
+        unused_input = [i for i in range(n_input) if i not in used_input]
+        unmatched_refs = [i for i, match in enumerate(high_confidence_matches) if not match['is_matched']]
+
+        logger.info(f"Unused input segments: {len(unused_input)}, Unmatched reference positions: {len(unmatched_refs)}")
+
+        # If we have unused input segments, we need to place them somewhere
+        if unused_input:
+            if unmatched_refs:
+                # Place unused inputs in unmatched reference positions (best similarity)
+                for input_idx in unused_input[:len(unmatched_refs)]:
+                    best_ref_idx = None
+                    best_similarity = -1
+
+                    for ref_idx in unmatched_refs:
+                        similarity = similarity_matrix[ref_idx, input_idx]
+                        if similarity > best_similarity:
+                            best_similarity = similarity
+                            best_ref_idx = ref_idx
+
+                    if best_ref_idx is not None:
+                        # Update the match for this reference position
+                        high_confidence_matches[best_ref_idx] = {
+                            'reference_idx': best_ref_idx,
+                            'input_idx': input_idx,
+                            'similarity': best_similarity,
+                            'is_matched': True,
+                            'match_type': 'forced_match'
+                        }
+                        unmatched_refs.remove(best_ref_idx)
+                        used_input.add(input_idx)
+
+            # If we still have unused input segments, extend the reference to accommodate them
+            remaining_unused = [i for i in unused_input if i not in used_input]
+            if remaining_unused:
+                logger.info(f"Extending reference with {len(remaining_unused)} additional segments")
+
+                # Add extra reference positions for remaining input segments
+                for input_idx in remaining_unused:
+                    # Find the best position to insert this segment
+                    best_position = len(high_confidence_matches)  # Default: append at end
+
+                    # Try to find a good position based on sequence similarity
+                    if len(high_confidence_matches) > 0:
+                        # Calculate where this segment would fit best sequentially
+                        input_text = input_texts[input_idx]
+                        best_score = -1
+
+                        for pos in range(len(high_confidence_matches) + 1):
+                            # Calculate fitness for inserting at this position
+                            score = self._calculate_insertion_fitness(
+                                pos, input_idx, input_texts, ref_texts, high_confidence_matches
+                            )
+                            if score > best_score:
+                                best_score = score
+                                best_position = pos
+
+                    # Create synthetic reference timing for this position
+                    synthetic_ref_timing = self._create_synthetic_reference_timing(
+                        best_position, reference_segments, input_segments[input_idx]
+                    )
+
+                    # Insert the match at the determined position
+                    match = {
+                        'reference_idx': len(reference_segments) + len(remaining_unused) - len(
+                            [x for x in remaining_unused if
+                             remaining_unused.index(x) >= remaining_unused.index(input_idx)]),
+                        'input_idx': input_idx,
+                        'similarity': 0.3,  # Default similarity for forced matches
+                        'is_matched': True,
+                        'match_type': 'extended_reference',
+                        'synthetic_timing': synthetic_ref_timing
+                    }
+
+                    high_confidence_matches.insert(best_position, match)
+
+        return {
+            'matches': high_confidence_matches,
+            'input_order': [m['input_idx'] for m in high_confidence_matches],
+            'reference_coverage': [m['is_matched'] for m in high_confidence_matches],
+            'total_similarity': sum(m['similarity'] for m in high_confidence_matches if m['is_matched'])
+        }
+
+    def _calculate_insertion_fitness(
+            self,
+            position: int,
+            input_idx: int,
+            input_texts: List[str],
+            ref_texts: List[str],
+            existing_matches: List[Dict]
+    ) -> float:
+        """
+        Calculate how well an input segment would fit at a given position.
+        """
+        if position == 0 or position >= len(existing_matches):
+            return 0.1  # Low fitness for boundary positions
+
+        input_text = input_texts[input_idx]
+
+        # Check similarity with neighboring segments
+        fitness = 0.0
+
+        if position > 0:
+            prev_match = existing_matches[position - 1]
+            if prev_match['is_matched'] and prev_match['input_idx'] is not None:
+                prev_text = input_texts[prev_match['input_idx']]
+                fitness += self._calculate_text_similarity(input_text, prev_text) * 0.5
+
+        if position < len(existing_matches):
+            next_match = existing_matches[position]
+            if next_match['is_matched'] and next_match['input_idx'] is not None:
+                next_text = input_texts[next_match['input_idx']]
+                fitness += self._calculate_text_similarity(input_text, next_text) * 0.5
+
+        return fitness
+
+    def _calculate_text_similarity(self, text1: str, text2: str) -> float:
+        """Calculate simple text similarity."""
+        if not text1 or not text2:
+            return 0.0
+
+        words1 = set(text1.lower().split())
+        words2 = set(text2.lower().split())
+
+        if not words1 or not words2:
+            return 0.0
+
+        intersection = words1.intersection(words2)
+        union = words1.union(words2)
+
+        return len(intersection) / len(union) if union else 0.0
+
+    def _create_synthetic_reference_timing(
+            self,
+            position: int,
+            reference_segments: List[Dict],
+            input_segment: Dict
+    ) -> Dict:
+        """
+        Create synthetic reference timing for input segments that extend beyond reference.
+        """
+        input_duration = input_segment.get('end', 0) - input_segment.get('start', 0)
+
+        if position == 0:
+            # Insert at beginning
+            start_time = 0.0
+            end_time = input_duration
+        elif position >= len(reference_segments):
+            # Append at end
+            last_ref_end = reference_segments[-1].get('end', 0) if reference_segments else 0
+            start_time = last_ref_end
+            end_time = start_time + input_duration
+        else:
+            # Insert in middle - create space
+            prev_end = reference_segments[position - 1].get('end', 0) if position > 0 else 0
+            next_start = reference_segments[position].get('start', input_duration) if position < len(
+                reference_segments) else prev_end + input_duration
+
+            available_space = next_start - prev_end
+            if available_space >= input_duration:
+                start_time = prev_end
+                end_time = start_time + input_duration
+            else:
+                # Not enough space, extend the timeline
+                start_time = prev_end
+                end_time = start_time + input_duration
+
+        return {
+            'start': start_time,
+            'end': end_time,
+            'text': input_segment.get('text', ''),
+            'synthetic': True
+        }
+
+    def _create_fallback_alignment(self, n_input: int, n_ref: int) -> Dict:
+        """
+        Create a fallback alignment that uses all input segments.
+        """
+        matches = []
+
+        # Map input segments to reference positions (cycling if needed)
+        for i in range(max(n_input, n_ref)):
+            ref_idx = i % n_ref if n_ref > 0 else 0
+            input_idx = i % n_input if i < n_input else None
+
+            matches.append({
+                'reference_idx': ref_idx if i < n_ref else i,
+                'input_idx': input_idx,
+                'similarity': 0.2,  # Low similarity for fallback
+                'is_matched': input_idx is not None,
+                'match_type': 'fallback'
+            })
+
+        return {
+            'matches': matches,
+            'input_order': [m['input_idx'] for m in matches],
+            'reference_coverage': [m['is_matched'] for m in matches],
+            'total_similarity': sum(m['similarity'] for m in matches if m['is_matched'])
+        }
+
+    def _ensure_complete_coverage(
+            self,
+            alignment: Dict,
+            similarity_matrix: np.ndarray,
+            input_segments: List[Dict],
+            reference_segments: List[Dict]
+    ) -> Dict:
+        """
+        Ensure all input segments are covered in the alignment.
+        """
+        n_ref, n_input = similarity_matrix.shape
+        used_input_indices = set()
+
+        # Collect already used input segments
+        for match in alignment['matches']:
+            if match['input_idx'] is not None:
+                used_input_indices.add(match['input_idx'])
+
+        unused_input = [i for i in range(n_input) if i not in used_input_indices]
+
+        if unused_input:
+            logger.info(f"Ensuring coverage for {len(unused_input)} unused input segments")
+
+            # Add unused segments to the end of the alignment
+            for input_idx in unused_input:
+                input_seg = input_segments[input_idx]
+
+                # Create synthetic reference timing
+                last_end = 0
+                if alignment['matches']:
+                    # Find the last end time
+                    for match in alignment['matches']:
+                        ref_idx = match['reference_idx']
+                        if ref_idx < len(reference_segments):
+                            seg_end = reference_segments[ref_idx].get('end', 0)
+                            last_end = max(last_end, seg_end)
+                        elif 'synthetic_timing' in match:
+                            seg_end = match['synthetic_timing'].get('end', 0)
+                            last_end = max(last_end, seg_end)
+
+                duration = input_seg.get('end', 0) - input_seg.get('start', 0)
+                synthetic_timing = {
+                    'start': last_end,
+                    'end': last_end + duration,
+                    'text': input_seg.get('text', ''),
+                    'synthetic': True
+                }
+
+                # Add to matches
+                alignment['matches'].append({
+                    'reference_idx': len(alignment['matches']),
+                    'input_idx': input_idx,
+                    'similarity': 0.2,
+                    'is_matched': True,
+                    'match_type': 'coverage_extension',
+                    'synthetic_timing': synthetic_timing
+                })
+
+        # Update derived fields
+        alignment['input_order'] = [m['input_idx'] for m in alignment['matches']]
+        alignment['reference_coverage'] = [m['is_matched'] for m in alignment['matches']]
+        alignment['total_similarity'] = sum(m['similarity'] for m in alignment['matches'] if m['is_matched'])
+
+        return alignment
+
+    def _generate_alignment_info(
+            self,
+            input_segments: List[Dict],
+            reference_segments: List[Dict],
+            alignment_result: Dict,
+            aligned_segments: List[Dict]
+    ) -> Dict:
+        """
+        Generate alignment statistics and information.
+        """
+        matches = alignment_result['matches']
+        matched_count = sum(1 for m in matches if m['is_matched'])
+        total_similarity = sum(m['similarity'] for m in matches if m['is_matched'])
+        avg_similarity = total_similarity / max(1, matched_count)
+
+        match_rate = matched_count / len(reference_segments) if reference_segments else 0
+        usage_rate = matched_count / len(input_segments) if input_segments else 0
+
+        silence_segments = len([s for s in aligned_segments if s.get('text') == '[SILENCE]'])
+        silence_percentage = (silence_segments / len(aligned_segments)) * 100 if aligned_segments else 0
+
+        return {
+            'total_reference_segments': len(reference_segments),
+            'total_input_segments': len(input_segments),
+            'matched_segments': matched_count,
+            'match_rate': match_rate,
+            'average_similarity': avg_similarity,
+            'usage_rate': usage_rate,
+            'silence_percentage': silence_percentage,
+            'total_duration': aligned_segments[-1]['end'] if aligned_segments else 0,
+            'alignment_method': 'sequence_alignment'
+        }
+
+    def _create_time_aligned_segments(
+            self,
+            alignment_result: Dict,
+            input_segments: List[Dict],
+            reference_segments: List[Dict]
+    ) -> List[Dict]:
+        """
+        Create time-aligned segments based on alignment result.
+        FIXED: Now handles synthetic timing for extended segments.
+        """
+        aligned_segments = []
+
+        for match in alignment_result['matches']:
+            ref_idx = match['reference_idx']
+            input_idx = match['input_idx']
+
+            # Determine timing - use synthetic timing if available
+            if 'synthetic_timing' in match:
+                start_time = match['synthetic_timing']['start']
+                end_time = match['synthetic_timing']['end']
+                ref_text = match['synthetic_timing']['text']
+            elif ref_idx < len(reference_segments):
+                ref_seg = reference_segments[ref_idx]
+                start_time = ref_seg['start']
+                end_time = ref_seg['end']
+                ref_text = ref_seg['text']
+            else:
+                # Fallback timing
+                start_time = 0.0
+                end_time = 1.0
+                ref_text = ""
+
+            if match['is_matched'] and input_idx is not None:
+                # Use matched input segment
+                input_seg = input_segments[input_idx]
+                aligned_segment = {
+                    'start': start_time,
+                    'end': end_time,
+                    'text': input_seg['text'],
+                    'segment_index': len(aligned_segments),
+
+                    # Copy input segment features
+                    'energy': input_seg.get('energy', 0.5),
+                    'pitch': input_seg.get('pitch', 0.5),
+                    'duration': end_time - start_time,
+                    'pause': input_seg.get('pause', 0),
+
+                    'energy_category': input_seg.get('energy_category', 'medium'),
+                    'pitch_category': input_seg.get('pitch_category', 'medium'),
+                    'duration_category': input_seg.get('duration_category', 'medium'),
+                    'text_density': input_seg.get('text_density', 'medium'),
+
+                    'is_repetitive': input_seg.get('is_repetitive', False),
+                    'has_vocal_runs': input_seg.get('has_vocal_runs', False),
+                    'is_sustained': input_seg.get('is_sustained', False),
+
+                    'likely_intro': input_seg.get('likely_intro', False),
+                    'likely_outro': input_seg.get('likely_outro', False),
+                    'likely_hook': input_seg.get('likely_hook', False),
+
+                    'keywords': input_seg.get('keywords', []),
+                    'word_count': input_seg.get('word_count', 0),
+                    'unique_word_ratio': input_seg.get('unique_word_ratio', 0),
+
+                    # Alignment metadata
+                    'original_start': input_seg['start'],
+                    'original_end': input_seg['end'],
+                    'reference_text': ref_text,
+                    'matched_input_text': input_seg['text'],
+                    'alignment_similarity': match['similarity'],
+                    'match_type': match.get('match_type', 'standard'),
+                    'is_synthetic': 'synthetic_timing' in match
+                }
+            else:
+                # Create silence segment
+                aligned_segment = {
+                    'start': start_time,
+                    'end': end_time,
+                    'text': '[SILENCE]',
+                    'segment_index': len(aligned_segments),
+
+                    # Default features for silence
+                    'energy': 0.0,
+                    'pitch': 0.0,
+                    'duration': end_time - start_time,
+                    'pause': 0.0,
+
+                    'energy_category': 'low',
+                    'pitch_category': 'low',
+                    'duration_category': 'short',
+                    'text_density': 'low',
+
+                    'is_repetitive': False,
+                    'has_vocal_runs': False,
+                    'is_sustained': False,
+
+                    'likely_intro': False,
+                    'likely_outro': False,
+                    'likely_hook': False,
+
+                    'keywords': [],
+                    'word_count': 0,
+                    'unique_word_ratio': 0.0,
+
+                    # Alignment metadata
+                    'reference_text': ref_text,
+                    'alignment_similarity': 0.0,
+                    'match_type': match.get('match_type', 'unmatched'),
+                    'is_synthetic': 'synthetic_timing' in match
+                }
+
+            aligned_segments.append(aligned_segment)
+
+        return aligned_segments
 
     def _greedy_alignment(
             self,
@@ -268,7 +739,8 @@ class TemporalAligner:
                 'reference_idx': ref_idx,
                 'input_idx': best_input_idx,
                 'similarity': best_similarity,
-                'is_matched': best_input_idx is not None
+                'is_matched': best_input_idx is not None,
+                'match_type': 'greedy'
             })
 
             if best_input_idx is not None:
@@ -302,13 +774,13 @@ class TemporalAligner:
         for i in range(1, n_ref + 1):
             for j in range(1, n_input + 1):
                 # Option 1: Match ref[i-1] with input[j-1]
-                match_score = dp[i-1][j-1] + similarity_matrix[i-1][j-1]
+                match_score = dp[i - 1][j - 1] + similarity_matrix[i - 1][j - 1]
 
                 # Option 2: Skip reference segment (insert silence)
-                skip_ref_score = dp[i-1][j]
+                skip_ref_score = dp[i - 1][j]
 
                 # Option 3: Skip input segment
-                skip_input_score = dp[i][j-1]
+                skip_input_score = dp[i][j - 1]
 
                 if match_score >= skip_ref_score and match_score >= skip_input_score:
                     dp[i][j] = match_score
@@ -328,21 +800,23 @@ class TemporalAligner:
             if (i, j) in traceback:
                 action = traceback[(i, j)]
                 if action == 'match':
-                    similarity = similarity_matrix[i-1][j-1]
+                    similarity = similarity_matrix[i - 1][j - 1]
                     matches.append({
-                        'reference_idx': i-1,
-                        'input_idx': j-1,
+                        'reference_idx': i - 1,
+                        'input_idx': j - 1,
                         'similarity': similarity,
-                        'is_matched': similarity > self.similarity_threshold
+                        'is_matched': similarity > self.similarity_threshold,
+                        'match_type': 'dynamic_programming'
                     })
                     i -= 1
                     j -= 1
                 elif action == 'skip_ref':
                     matches.append({
-                        'reference_idx': i-1,
+                        'reference_idx': i - 1,
                         'input_idx': None,
                         'similarity': 0.0,
-                        'is_matched': False
+                        'is_matched': False,
+                        'match_type': 'dynamic_programming'
                     })
                     i -= 1
                 else:  # skip_input
@@ -393,7 +867,8 @@ class TemporalAligner:
                         'reference_idx': ref_idx,
                         'input_idx': input_idx,
                         'similarity': similarity,
-                        'is_matched': similarity > self.similarity_threshold
+                        'is_matched': similarity > self.similarity_threshold,
+                        'match_type': 'sequence_aware'
                     })
 
                     ref_covered.add(ref_idx)
@@ -406,7 +881,8 @@ class TemporalAligner:
                     'reference_idx': ref_idx,
                     'input_idx': None,
                     'similarity': 0.0,
-                    'is_matched': False
+                    'is_matched': False,
+                    'match_type': 'sequence_aware'
                 })
 
         # Sort matches by reference index
@@ -433,6 +909,11 @@ class TemporalAligner:
         # Coverage score: how many reference segments are matched
         coverage = sum(alignment['reference_coverage']) / len(alignment['reference_coverage'])
 
+        # Input usage score: how many input segments are used
+        input_usage = len([m for m in alignment['matches'] if m['input_idx'] is not None]) / max(1,
+                                                                                                 similarity_matrix.shape[
+                                                                                                     1])
+
         # Sequence coherence: bonus for maintaining input order
         sequence_bonus = 0.0
         input_indices = [m['input_idx'] for m in alignment['matches'] if m['input_idx'] is not None]
@@ -441,109 +922,10 @@ class TemporalAligner:
             for i in range(len(input_indices) - 1):
                 if input_indices[i] < input_indices[i + 1]:
                     ordered_count += 1
-            sequence_bonus = ordered_count / (len(input_indices) - 1) * 0.2
+            sequence_bonus = ordered_count / (len(input_indices) - 1) * 0.15
 
-        # Combined score
-        return 0.5 * avg_similarity + 0.3 * coverage + 0.2 * sequence_bonus
-
-    def _create_time_aligned_segments(
-            self,
-            alignment_result: Dict,
-            input_segments: List[Dict],
-            reference_segments: List[Dict]
-    ) -> List[Dict]:
-        """
-        Create time-aligned segments based on alignment result.
-        """
-        aligned_segments = []
-
-        for match in alignment_result['matches']:
-            ref_idx = match['reference_idx']
-            input_idx = match['input_idx']
-            ref_seg = reference_segments[ref_idx]
-
-            # Use reference timing
-            start_time = ref_seg['start']
-            end_time = ref_seg['end']
-
-            if match['is_matched'] and input_idx is not None:
-                # Use matched input segment
-                input_seg = input_segments[input_idx]
-                aligned_segment = {
-                    'start': start_time,
-                    'end': end_time,
-                    'text': input_seg['text'],
-                    'segment_index': len(aligned_segments),
-
-                    # Copy input segment features
-                    'energy': input_seg.get('energy', 0.5),
-                    'pitch': input_seg.get('pitch', 0.5),
-                    'duration': end_time - start_time,
-                    'pause': input_seg.get('pause', 0),
-
-                    'energy_category': input_seg.get('energy_category', 'medium'),
-                    'pitch_category': input_seg.get('pitch_category', 'medium'),
-                    'duration_category': input_seg.get('duration_category', 'medium'),
-                    'text_density': input_seg.get('text_density', 'medium'),
-
-                    'is_repetitive': input_seg.get('is_repetitive', False),
-                    'has_vocal_runs': input_seg.get('has_vocal_runs', False),
-                    'is_sustained': input_seg.get('is_sustained', False),
-
-                    'likely_intro': input_seg.get('likely_intro', False),
-                    'likely_outro': input_seg.get('likely_outro', False),
-                    'likely_hook': input_seg.get('likely_hook', False),
-
-                    'keywords': input_seg.get('keywords', []),
-                    'word_count': input_seg.get('word_count', 0),
-                    'unique_word_ratio': input_seg.get('unique_word_ratio', 0),
-
-                    # Alignment metadata
-                    'original_start': input_seg['start'],
-                    'original_end': input_seg['end'],
-                    'reference_text': ref_seg['text'],
-                    'matched_input_text': input_seg['text'],
-                    'alignment_similarity': match['similarity']
-                }
-            else:
-                # Create silence segment
-                aligned_segment = {
-                    'start': start_time,
-                    'end': end_time,
-                    'text': '[SILENCE]',
-                    'segment_index': len(aligned_segments),
-
-                    # Default features for silence
-                    'energy': 0.0,
-                    'pitch': 0.0,
-                    'duration': end_time - start_time,
-                    'pause': 0.0,
-
-                    'energy_category': 'low',
-                    'pitch_category': 'low',
-                    'duration_category': 'short',
-                    'text_density': 'low',
-
-                    'is_repetitive': False,
-                    'has_vocal_runs': False,
-                    'is_sustained': False,
-
-                    'likely_intro': False,
-                    'likely_outro': False,
-                    'likely_hook': False,
-
-                    'keywords': [],
-                    'word_count': 0,
-                    'unique_word_ratio': 0.0,
-
-                    # Alignment metadata
-                    'reference_text': ref_seg['text'],
-                    'alignment_similarity': 0.0
-                }
-
-            aligned_segments.append(aligned_segment)
-
-        return aligned_segments
+        # Combined score prioritizing input usage to avoid silence gaps
+        return 0.3 * avg_similarity + 0.2 * coverage + 0.4 * input_usage + 0.1 * sequence_bonus
 
     def _create_temporal_audio(
             self,
@@ -553,12 +935,13 @@ class TemporalAligner:
     ) -> str:
         """
         Create time-aligned audio file from aligned segments.
+        FIXED: Now handles synthetic timing and ensures all segments are included.
         """
         try:
             # Load input audio
             audio, sr = librosa.load(input_audio_path, sr=None)
 
-            # Calculate total duration from reference timing
+            # Calculate total duration from aligned segments (including synthetic ones)
             if not aligned_segments:
                 return output_path
 
@@ -566,12 +949,14 @@ class TemporalAligner:
             output_length = int(total_duration * sr)
             output_audio = np.zeros(output_length)
 
+            logger.info(f"Creating audio: {len(aligned_segments)} segments, {total_duration:.2f}s total duration")
+
             # Process each aligned segment
             for segment in aligned_segments:
                 if segment.get('text') == '[SILENCE]':
                     continue  # Skip silence segments (leave as zeros)
 
-                # Target timing (from reference)
+                # Target timing (from reference or synthetic)
                 target_start = segment['start']
                 target_end = segment['end']
                 target_start_sample = int(target_start * sr)
@@ -594,7 +979,15 @@ class TemporalAligner:
                             if len(segment_audio) != target_length:
                                 # Use librosa for time stretching
                                 stretch_ratio = len(segment_audio) / target_length
-                                segment_audio = librosa.effects.time_stretch(segment_audio, rate=stretch_ratio)
+                                try:
+                                    segment_audio = librosa.effects.time_stretch(segment_audio, rate=stretch_ratio)
+                                except Exception as e:
+                                    logger.warning(
+                                        f"Time stretching failed for segment {segment.get('segment_index', '?')}: {e}")
+                                    # Fallback: simple resampling
+                                    if target_length > 0:
+                                        segment_audio = librosa.resample(segment_audio, orig_sr=len(segment_audio),
+                                                                         target_sr=target_length)
 
                             # Ensure exact target length
                             if len(segment_audio) > target_length:
@@ -603,51 +996,22 @@ class TemporalAligner:
                                 segment_audio = np.pad(segment_audio, (0, target_length - len(segment_audio)))
 
                             # Place in output audio
-                            if target_end_sample <= len(output_audio):
+                            if target_end_sample <= len(output_audio) and target_start_sample >= 0:
                                 output_audio[target_start_sample:target_end_sample] = segment_audio
+                                logger.debug(
+                                    f"Placed segment {segment.get('segment_index', '?')} at {target_start:.2f}-{target_end:.2f}s")
+                            else:
+                                logger.warning(
+                                    f"Segment {segment.get('segment_index', '?')} timing out of bounds: {target_start:.2f}-{target_end:.2f}s")
+                    else:
+                        logger.warning(
+                            f"Original audio segment out of bounds: {orig_start:.2f}-{orig_end:.2f}s (audio length: {len(audio) / sr:.2f}s)")
 
             # Save output
             sf.write(output_path, output_audio, sr)
-            logger.info(f"Created time-aligned audio: {output_path}")
+            logger.info(f"Created time-aligned audio: {output_path} ({len(output_audio) / sr:.2f}s)")
             return output_path
 
         except Exception as e:
             logger.error(f"Failed to create temporal audio: {e}")
             raise
-
-    def _generate_alignment_info(
-            self,
-            input_segments: List[Dict],
-            reference_segments: List[Dict],
-            alignment_result: Dict,
-            aligned_segments: List[Dict]
-    ) -> Dict:
-        """
-        Generate alignment statistics and information.
-        """
-        matches = alignment_result['matches']
-        matched_count = sum(1 for m in matches if m['is_matched'])
-        total_similarity = sum(m['similarity'] for m in matches if m['is_matched'])
-        avg_similarity = total_similarity / max(1, matched_count)
-
-        match_rate = matched_count / len(reference_segments) if reference_segments else 0
-        usage_rate = matched_count / len(input_segments) if input_segments else 0
-
-        silence_segments = len([s for s in aligned_segments if s.get('text') == '[SILENCE]'])
-        silence_percentage = (silence_segments / len(aligned_segments)) * 100 if aligned_segments else 0
-
-        return {
-            'total_reference_segments': len(reference_segments),
-            'total_input_segments': len(input_segments),
-            'matched_segments': matched_count,
-            'match_rate': match_rate,
-            'average_similarity': avg_similarity,
-            'usage_rate': usage_rate,
-            'silence_percentage': silence_percentage,
-            'total_duration': aligned_segments[-1]['end'] if aligned_segments else 0,
-            'alignment_method': 'sequence_alignment'
-        }
-
-
-# Backward compatibility alias
-ReferenceAligner = TemporalAligner
