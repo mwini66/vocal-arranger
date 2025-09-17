@@ -405,8 +405,8 @@ class TemporalAligner:
         pitch_sim = 1 - abs(ref_seg.get('pitch', 0.5) - input_seg.get('pitch', 0.5))
 
         # Duration similarity (normalized)
-        ref_duration = ref_seg.get('end', 0) - ref_seg.get('start', 0)
-        input_duration = input_seg.get('end', 0) - input_seg.get('start', 0)
+        ref_duration = float(ref_seg.get('end', 0) - ref_seg.get('start', 0))
+        input_duration = float(input_seg.get('end', 0) - input_seg.get('start', 0))
         duration_ratio = min(ref_duration, input_duration) / max(ref_duration, input_duration, 0.1)
 
         # Combine audio features
@@ -572,8 +572,8 @@ class TemporalAligner:
                 pitch_sim = 1 - abs(ref_seg.get('pitch', 0.5) - input_seg.get('pitch', 0.5))
 
                 # Duration similarity (normalized)
-                ref_duration = ref_seg.get('end', 0) - ref_seg.get('start', 0)
-                input_duration = input_seg.get('end', 0) - input_seg.get('start', 0)
+                ref_duration = float(ref_seg.get('end', 0) - ref_seg.get('start', 0))
+                input_duration = float(input_seg.get('end', 0) - input_seg.get('start', 0))
                 duration_ratio = min(ref_duration, input_duration) / max(ref_duration, input_duration, 0.1)
 
                 # Combine audio features
@@ -859,3 +859,105 @@ class TemporalAligner:
         except Exception as e:
             logger.warning(f"Compression failed: {e}")
             return audio
+
+    def _create_aligned_segments(self, alignment_plan: List[Dict], input_segments: List[Dict]) -> List[Dict]:
+        """
+        Create segment metadata for aligned output.
+        """
+        aligned_segments = []
+
+        for plan_item in alignment_plan:
+            if plan_item['is_silence']:
+                # Create silence segment
+                aligned_segment = {
+                    'start': plan_item['start_time'],
+                    'end': plan_item['end_time'],
+                    'text': '[SILENCE]',
+                    'segment_index': len(aligned_segments),
+                    'energy': 0.0,
+                    'pitch': 0.0,
+                    'duration': plan_item['duration'],
+                    'pause': 0.0,
+                    'energy_category': 'silence',
+                    'pitch_category': 'silence',
+                    'duration_category': 'medium',
+                    'text_density': 'none',
+                    'is_repetitive': False,
+                    'has_vocal_runs': False,
+                    'is_sustained': False,
+                    'likely_intro': False,
+                    'likely_outro': False,
+                    'likely_hook': False,
+                    'keywords': [],
+                    'word_count': 0,
+                    'unique_word_ratio': 0.0,
+                    # Add matching information for silence segments
+                    'alignment_similarity': 0.0,
+                    'original_segment_index': None,
+                    'matched_input_text': None,
+                    'reference_text': plan_item.get('reference_text', 'N/A')
+                }
+            else:
+                # Copy and adjust input segment
+                input_seg = input_segments[plan_item['input_segment_index']]
+                aligned_segment = input_seg.copy()
+
+                # Update timing to match reference
+                aligned_segment['start'] = plan_item['start_time']
+                aligned_segment['end'] = plan_item['end_time']
+                aligned_segment['segment_index'] = len(aligned_segments)
+
+                # Add alignment metadata with both texts
+                aligned_segment['alignment_similarity'] = plan_item['similarity']
+                aligned_segment['original_segment_index'] = plan_item['input_segment_index']
+                aligned_segment['matched_input_text'] = input_seg.get('text', '')
+                aligned_segment['reference_text'] = plan_item.get('reference_text', 'N/A')
+
+            aligned_segments.append(aligned_segment)
+
+        return aligned_segments
+
+    def _generate_alignment_info(
+            self,
+            input_segments: List[Dict],
+            reference_segments: List[Dict],
+            matches: List[Dict],
+            alignment_plan: List[Dict]
+    ) -> Dict:
+        """
+        Generate alignment statistics and information.
+        """
+        matched_segments = len([m for m in matches if m['is_matched']])
+        total_reference_segments = len(reference_segments)
+        total_input_segments = len(input_segments)
+
+        similarities = [m['similarity'] for m in matches if m['is_matched']]
+        avg_similarity = sum(similarities) / len(similarities) if similarities else 0
+
+        # Calculate timing statistics
+        total_duration = max([item['end_time'] for item in alignment_plan])
+        silence_duration = sum([
+            item['duration'] for item in alignment_plan if item['is_silence']
+        ])
+
+        return {
+            'total_reference_segments': total_reference_segments,
+            'total_input_segments': total_input_segments,
+            'matched_segments': matched_segments,
+            'unmatched_segments': total_reference_segments - matched_segments,
+            'match_rate': matched_segments / total_reference_segments if total_reference_segments > 0 else 0,
+            'average_similarity': avg_similarity,
+            'used_input_segments': matched_segments,
+            'unused_input_segments': total_input_segments - matched_segments,
+            'usage_rate': matched_segments / total_input_segments if total_input_segments > 0 else 0,
+            'total_duration': total_duration,
+            'silence_duration': silence_duration,
+            'content_duration': total_duration - silence_duration,
+            'silence_percentage': (silence_duration / total_duration * 100) if total_duration > 0 else 0,
+            'alignment_method': 'temporal_alignment',
+            'similarity_threshold': self.similarity_threshold
+        }
+
+
+# Backward compatibility alias
+ReferenceAligner = TemporalAligner
