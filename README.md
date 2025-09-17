@@ -34,7 +34,7 @@ The **AI-Driven Vocal Arranger** transforms unstructured freestyle vocal recordi
 ```
 vocal-arranger/
 ├── backend/
-│   ├── app.py                    # Flask main application with API endpoints
+│   ├── app.py                    # Flask main application with 6 core API endpoints
 │   ├── audio_analysis/
 │   │   ├── arrangement.py        # AIVocalArranger with reference-based logic
 │   │   ├── llm_utils.py         # OpenRouter client for GPT integration
@@ -49,8 +49,7 @@ vocal-arranger/
     │   ├── app/
     │   │   └── page.tsx         # Main UI with 3-step workflow
     │   ├── components/ui/
-    │   │   ├── AudioPlayer.tsx   # Audio playback component
-    │   │   └── AIVocalArranger.tsx # Legacy arrangement interface
+    │   │   └── AudioPlayer.tsx   # Audio playback component
     │   └── lib/                 # Utilities and helpers
     └── public/                  # Static assets
 ```
@@ -121,11 +120,6 @@ npm run dev
 - `POST /process_vocals` - Process input vocals (Step 1)
 - `POST /process_reference` - Process reference track (Step 2)  
 - `POST /arrange_to_reference` - AI arrangement (Step 3)
-
-### Legacy Support
-- `POST /segment` - Basic vocal segmentation
-- `POST /arrange` - Standalone AI arrangement
-- `POST /process_with_reference` - Complete workflow in one call
 
 ### Status & Feedback
 - `GET /model_status` - Check AI model availability

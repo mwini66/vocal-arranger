@@ -35,7 +35,7 @@ Flask-based backend that powers reference-based AI vocal arrangement. Uses OpenR
 ## Project Architecture
 ```
 backend/
-├── app.py                          # Main Flask application with 15+ API endpoints
+├── app.py                          # Main Flask application with 6 core API endpoints
 ├── audio_analysis/
 │   ├── arrangement.py              # AIVocalArranger with reference-based logic
 │   ├── llm_utils.py               # OpenRouterClient for GPT integration
@@ -48,7 +48,7 @@ backend/
 │   ├── audio/                     # Input vocals and reference tracks
 │   └── aligned/                   # Generated arranged audio files
 ├── requirements.txt               # Python dependencies
-└── README.md                      # This file
+��── README.md                      # This file
 ```
 
 ## Setup & Installation

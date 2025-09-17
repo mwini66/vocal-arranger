@@ -45,7 +45,6 @@ frontend/
 │   │   └── globals.css           # TailwindCSS configuration
 │   ├── components/ui/
 │   │   ├── AudioPlayer.tsx       # Audio playback component
-│   │   ├── AIVocalArranger.tsx   # Legacy arrangement interface
 │   │   ├── card.tsx              # UI card component
 │   │   └── button.tsx            # UI button component
 │   └── lib/
@@ -131,11 +130,6 @@ Access the application at `http://localhost:3000`
 - **Universal Audio**: Supports multiple audio formats
 - **Browser Compatibility**: Works across modern browsers
 - **Responsive Design**: Adapts to different screen sizes
-
-### Legacy AIVocalArranger Component
-- **Backward Compatibility**: Supports older arrangement methods
-- **Segment Visualization**: Rich display of vocal characteristics
-- **Method Comparison**: Side-by-side arrangement comparison
 
 ## API Integration
 
