@@ -8,7 +8,7 @@ from flask_cors import CORS
 
 from audio_analysis.arrangement import AIVocalArranger
 from audio_analysis.extract_features import extract_segment_features
-from audio_analysis.reference_alignment import ReferenceAligner, TemporalAligner
+from audio_analysis.reference_alignment import TemporalAligner
 from audio_analysis.whisperx_utils import transcribe_with_whisperx
 
 load_dotenv()
@@ -26,11 +26,10 @@ if not os.path.exists(FEEDBACK_FILE):
     with open(FEEDBACK_FILE, "w") as f:
         json.dump([], f)
 
-# Initialize AI vocal arranger and reference aligner
+# Initialize AI vocal arranger
 ai_arranger = AIVocalArranger()
-reference_aligner = ReferenceAligner()
 
-# Initialize temporal aligner (replacing LLM-based approach)
+# Initialize temporal aligner (the main alignment system)
 temporal_aligner = TemporalAligner(similarity_threshold=0.3)
 
 
