@@ -9,13 +9,16 @@ from flask_cors import CORS
 from audio_analysis.arrangement import AIVocalArranger
 from audio_analysis.extract_features import extract_segment_features
 from audio_analysis.whisperx_utils import transcribe_with_whisperx
+from audio_analysis.reference_alignment import ReferenceAligner
 
 load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
 UPLOAD_FOLDER = "uploads/audio"
+ALIGNED_FOLDER = "uploads/aligned"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(ALIGNED_FOLDER, exist_ok=True)
 
 FEEDBACK_FILE = os.path.join("data", "arrangement_feedback.json")
 os.makedirs(os.path.dirname(FEEDBACK_FILE), exist_ok=True)
@@ -23,13 +26,19 @@ if not os.path.exists(FEEDBACK_FILE):
     with open(FEEDBACK_FILE, "w") as f:
         json.dump([], f)
 
-# Initialize AI vocal arranger
+# Initialize AI vocal arranger and reference aligner
 ai_arranger = AIVocalArranger()
+reference_aligner = ReferenceAligner()
 
 
 @app.route('/audio/<filename>')
 def serve_audio(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
+
+
+@app.route('/aligned/<filename>')
+def serve_aligned_audio(filename):
+    return send_from_directory(ALIGNED_FOLDER, filename)
 
 
 @app.route("/segment", methods=["POST"])
@@ -261,7 +270,7 @@ def arrangement_feedback():
 @app.route("/model_status", methods=["GET"])
 def model_status():
     """
-    Get status of available AI services for vocal arrangement.
+    Get status of available AI services for vocal arrangement and reference alignment.
     Returns: { "models": {...}, "services": {...}, "arrangement_methods": [...] }
     """
     try:
@@ -273,10 +282,17 @@ def model_status():
             "services": {
                 "openrouter": False,
                 "whisper": True,
-                "feature_extraction": True
+                "feature_extraction": True,
+                "reference_alignment": True
             },
-            "arrangement_methods": ["ai", "ai_pop", "ai_hiphop"],
-            "structure_templates": list(ai_arranger.structure_templates.keys())
+            "arrangement_methods": ["ai", "ai_pop", "ai_hiphop", "reference_alignment"],
+            "structure_templates": list(ai_arranger.structure_templates.keys()),
+            "alignment_features": {
+                "reference_processing": True,
+                "text_similarity_matching": True,
+                "audio_time_stretching": True,
+                "segment_alignment": True
+            }
         }
 
         # Check OpenRouter AI availability
@@ -289,6 +305,210 @@ def model_status():
             pass
 
         return jsonify(status), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/align/reference", methods=["POST"])
+def align_reference():
+    """
+    Align vocals to a reference track.
+    Expects JSON payload: {
+        "segments": [...],
+        "reference_track": "path/to/reference.mp3",
+        "alignment_method": "dynamic" | "static" (optional)
+    }
+    Returns: {
+        "alignment": [...],
+        "method": "reference_alignment",
+        "parameters": {...}
+    }
+    """
+    data = request.get_json()
+    if not data or "segments" not in data or "reference_track" not in data:
+        return jsonify({"error": "Missing segments or reference track in request"}), 400
+
+    segments = data["segments"]
+    reference_track = data["reference_track"]
+    alignment_method = data.get("alignment_method", "dynamic")
+
+    try:
+        # Perform alignment
+        alignment = reference_aligner.align_segments_to_reference(
+            segments, reference_track, method=alignment_method
+        )
+
+        return jsonify({
+            "alignment": alignment,
+            "method": "reference_alignment",
+            "parameters": {
+                "alignment_method": alignment_method
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/align/status", methods=["GET"])
+def alignment_status():
+    """
+    Get status of the alignment process for a specific job.
+    Expects query parameter: job_id
+    Returns: { "job_id": str, "status": "pending" | "processing" | "completed" | "error", ... }
+    """
+    job_id = request.args.get("job_id")
+    if not job_id:
+        return jsonify({"error": "Missing job_id parameter"}), 400
+
+    try:
+        status = reference_aligner.get_alignment_status(job_id)
+        return jsonify(status), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/reference/process", methods=["POST"])
+def process_reference():
+    """
+    Process reference track to extract segments and features.
+    Accepts a reference track file upload (multipart/form-data).
+    Returns: { "reference_segments": [ {enhanced segment features}, ... ] }
+    """
+    if "reference" not in request.files:
+        return jsonify({"error": "Reference track file is required."}), 400
+
+    reference = request.files["reference"]
+    reference_path = os.path.join(UPLOAD_FOLDER, f"ref_{reference.filename}")
+    reference.save(reference_path)
+
+    try:
+        # Process reference track
+        reference_segments = reference_aligner.process_reference_track(reference_path)
+
+        return jsonify({
+            "reference_segments": reference_segments,
+            "reference_path": reference_path,
+            "total_segments": len(reference_segments)
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/align/to_reference", methods=["POST"])
+def align_to_reference():
+    """
+    Align user vocals to match reference track timing and sequence.
+    Expects JSON payload: {
+        "user_segments": [...],
+        "reference_segments": [...],
+        "user_audio_path": "path/to/user/audio",
+        "create_audio": true (optional, default false)
+    }
+    Returns: {
+        "aligned_segments": [...],
+        "alignment_info": {...},
+        "aligned_audio_path": "..." (if create_audio=true)
+    }
+    """
+    data = request.get_json()
+    if not data or "user_segments" not in data or "reference_segments" not in data:
+        return jsonify({"error": "Missing user_segments or reference_segments in request"}), 400
+
+    user_segments = data["user_segments"]
+    reference_segments = data["reference_segments"]
+    user_audio_path = data.get("user_audio_path")
+    create_audio = data.get("create_audio", False)
+
+    try:
+        # Perform alignment
+        aligned_segments, alignment_info = reference_aligner.align_to_reference(
+            user_segments, reference_segments
+        )
+
+        response = {
+            "aligned_segments": aligned_segments,
+            "alignment_info": alignment_info,
+            "method": "reference_alignment"
+        }
+
+        # Optionally create aligned audio file
+        if create_audio and user_audio_path:
+            if not os.path.exists(user_audio_path):
+                return jsonify({"error": f"User audio file not found: {user_audio_path}"}), 400
+
+            # Generate unique output filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_filename = f"aligned_{timestamp}.wav"
+            output_path = os.path.join(ALIGNED_FOLDER, output_filename)
+
+            aligned_audio_path = reference_aligner.create_aligned_audio(
+                user_audio_path, aligned_segments, output_path
+            )
+
+            response["aligned_audio_path"] = f"/aligned/{output_filename}"
+            response["aligned_audio_full_path"] = aligned_audio_path
+
+        return jsonify(response), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/process_with_reference", methods=["POST"])
+def process_with_reference():
+    """
+    Complete workflow: process both user vocals and reference, then align.
+    Accepts multipart/form-data with 'vocals' and 'reference' files.
+    Returns: {
+        "user_segments": [...],
+        "reference_segments": [...],
+        "aligned_segments": [...],
+        "alignment_info": {...},
+        "aligned_audio_path": "..."
+    }
+    """
+    if "vocals" not in request.files or "reference" not in request.files:
+        return jsonify({"error": "Both vocals and reference files are required."}), 400
+
+    vocals = request.files["vocals"]
+    reference = request.files["reference"]
+
+    # Save files
+    vocals_path = os.path.join(UPLOAD_FOLDER, vocals.filename)
+    reference_path = os.path.join(UPLOAD_FOLDER, f"ref_{reference.filename}")
+    vocals.save(vocals_path)
+    reference.save(reference_path)
+
+    try:
+        # Process user vocals
+        user_segments_raw = transcribe_with_whisperx(vocals_path)
+        user_segments = extract_segment_features(vocals_path, user_segments_raw)
+
+        # Process reference track
+        reference_segments = reference_aligner.process_reference_track(reference_path)
+
+        # Perform alignment
+        aligned_segments, alignment_info = reference_aligner.align_to_reference(
+            user_segments, reference_segments
+        )
+
+        # Create aligned audio
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"aligned_{timestamp}.wav"
+        output_path = os.path.join(ALIGNED_FOLDER, output_filename)
+
+        aligned_audio_path = reference_aligner.create_aligned_audio(
+            vocals_path, aligned_segments, output_path
+        )
+
+        return jsonify({
+            "user_segments": user_segments,
+            "reference_segments": reference_segments,
+            "aligned_segments": aligned_segments,
+            "alignment_info": alignment_info,
+            "aligned_audio_path": f"/aligned/{output_filename}",
+            "method": "complete_reference_alignment"
+        }), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500

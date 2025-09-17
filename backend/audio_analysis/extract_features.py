@@ -25,6 +25,26 @@ except LookupError:
     nltk.download('punkt_tab', quiet=True)
 
 
+def convert_numpy_types(obj):
+    """
+    Recursively convert numpy types to Python native types for JSON serialization.
+    """
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    else:
+        return obj
+
+
 def extract_features(audio_path, output_path):
     """
     Extracts tempo, key, energy, pitch, and segment features from audio
@@ -185,7 +205,8 @@ def extract_segment_features(audio_path, segments):
 
         segment_features.append(features)
 
-    return segment_features
+    # Convert all numpy types to Python native types for JSON serialization
+    return convert_numpy_types(segment_features)
 
 
 def _categorize_energy(energy):
