@@ -1,9 +1,11 @@
 import difflib
 import logging
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
+import os
 
 import librosa
 import numpy as np
+import soundfile as sf
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -13,13 +15,21 @@ from .whisperx_utils import transcribe_with_whisperx
 logger = logging.getLogger(__name__)
 
 
-class ReferenceAligner:
+class TemporalAligner:
     """
-    Aligns user vocal segments to match a reference track's timing and sequence.
+    Temporal alignment system that matches input vocals to reference track timing.
+
+    Key features:
+    - Finds matching segments between input and reference
+    - Arranges input segments in reference order
+    - Time-aligns output to match reference timestamps
+    - Pads with silence when segments don't match
+    - Handles partial matches (e.g., starting midway through reference)
     """
 
-    def __init__(self):
+    def __init__(self, similarity_threshold: float = 0.3):
         self.vectorizer = TfidfVectorizer(stop_words='english', lowercase=True)
+        self.similarity_threshold = similarity_threshold
 
     def process_reference_track(self, reference_path: str) -> List[Dict]:
         """
@@ -45,359 +55,433 @@ class ReferenceAligner:
             logger.error(f"Failed to process reference track: {e}")
             raise
 
-    def align_to_reference(self, user_segments: List[Dict], reference_segments: List[Dict]) -> Tuple[List[Dict], Dict]:
+    def align_to_reference_timing(
+        self,
+        input_segments: List[Dict],
+        reference_segments: List[Dict],
+        input_audio_path: str,
+        output_path: str
+    ) -> Tuple[List[Dict], Dict, str]:
         """
-        Align user segments to match reference track timing and sequence.
+        Main temporal alignment function.
 
         Args:
-            user_segments: User's vocal segments with features
+            input_segments: User's vocal segments with features
             reference_segments: Reference track segments with features
+            input_audio_path: Path to input audio file
+            output_path: Path for output aligned audio
 
         Returns:
-            Tuple of (aligned_segments, alignment_info)
+            Tuple of (aligned_segments, alignment_info, output_audio_path)
         """
         try:
-            # Find best matches between user and reference segments
-            alignment_map = self._find_segment_matches(user_segments, reference_segments)
+            # Step 1: Find segment matches between input and reference
+            segment_matches = self._find_segment_matches(input_segments, reference_segments)
 
-            # Create aligned segments with reference timing
-            aligned_segments = self._create_aligned_segments(
-                user_segments, reference_segments, alignment_map
+            # Step 2: Create temporal alignment plan
+            alignment_plan = self._create_alignment_plan(segment_matches, reference_segments)
+
+            # Step 3: Generate time-aligned audio
+            aligned_audio_path = self._create_temporal_audio(
+                input_audio_path, input_segments, alignment_plan, output_path
             )
 
-            # Generate alignment statistics
+            # Step 4: Create aligned segment metadata
+            aligned_segments = self._create_aligned_segments(alignment_plan, input_segments)
+
+            # Step 5: Generate alignment statistics
             alignment_info = self._generate_alignment_info(
-                user_segments, reference_segments, alignment_map
+                input_segments, reference_segments, segment_matches, alignment_plan
             )
 
-            return convert_numpy_types(aligned_segments), convert_numpy_types(alignment_info)
+            return convert_numpy_types(aligned_segments), convert_numpy_types(alignment_info), aligned_audio_path
 
         except Exception as e:
-            logger.error(f"Alignment failed: {e}")
+            logger.error(f"Temporal alignment failed: {e}")
             raise
 
-    def _find_segment_matches(self, user_segments: List[Dict], reference_segments: List[Dict]) -> List[Dict]:
+    def _find_segment_matches(self, input_segments: List[Dict], reference_segments: List[Dict]) -> List[Dict]:
         """
-        Find the best matching user segments for each reference segment.
+        Find matching segments between input and reference using text and audio similarity.
         """
         matches = []
 
         # Extract text from segments
-        user_texts = [seg.get('text', '').strip() for seg in user_segments]
+        input_texts = [seg.get('text', '').strip() for seg in input_segments]
         ref_texts = [seg.get('text', '').strip() for seg in reference_segments]
 
-        # Remove empty texts
-        valid_user_indices = [i for i, text in enumerate(user_texts) if text]
+        # Filter out empty texts
+        valid_input_indices = [i for i, text in enumerate(input_texts) if text]
         valid_ref_indices = [i for i, text in enumerate(ref_texts) if text]
 
-        if not valid_user_indices or not valid_ref_indices:
-            logger.warning("No valid text segments found for alignment")
+        if not valid_input_indices or not valid_ref_indices:
+            logger.warning("No valid text segments found for matching")
             return []
 
-        # Create text similarity matrix using TF-IDF and cosine similarity
-        all_texts = [user_texts[i] for i in valid_user_indices] + [ref_texts[i] for i in valid_ref_indices]
+        # Create combined similarity matrix (text + audio features)
+        similarity_matrix = self._calculate_similarity_matrix(
+            input_segments, reference_segments,
+            valid_input_indices, valid_ref_indices
+        )
 
-        if len(all_texts) > 1:
-            try:
-                tfidf_matrix = self.vectorizer.fit_transform(all_texts)
-                user_tfidf = tfidf_matrix[:len(valid_user_indices)]
-                ref_tfidf = tfidf_matrix[len(valid_user_indices):]
-                similarity_matrix = cosine_similarity(ref_tfidf, user_tfidf)
-            except Exception as e:
-                logger.warning(f"TF-IDF similarity failed, using string matching: {e}")
-                similarity_matrix = self._string_similarity_matrix(
-                    [ref_texts[i] for i in valid_ref_indices],
-                    [user_texts[i] for i in valid_user_indices]
-                )
-        else:
-            similarity_matrix = np.array([[1.0]])
-
-        # Find best matches
-        used_user_segments = set()
+        # Find best matches using Hungarian-like algorithm
+        used_input_segments = set()
 
         for ref_idx, ref_seg_idx in enumerate(valid_ref_indices):
             similarities = similarity_matrix[ref_idx]
 
-            # Sort user segments by similarity
-            sorted_user_indices = sorted(
-                range(len(valid_user_indices)),
-                key=lambda i: similarities[i],
-                reverse=True
-            )
-
-            # Find the best unused match
+            # Find best unused match above threshold
             best_match = None
             best_similarity = 0.0
 
-            for user_idx in sorted_user_indices:
-                user_seg_idx = valid_user_indices[user_idx]
-                if user_seg_idx not in used_user_segments:
-                    best_match = user_seg_idx
-                    best_similarity = similarities[user_idx]
-                    used_user_segments.add(user_seg_idx)
-                    break
+            for input_idx in range(len(valid_input_indices)):
+                input_seg_idx = valid_input_indices[input_idx]
+                similarity = similarities[input_idx]
+
+                if (input_seg_idx not in used_input_segments and
+                    similarity > self.similarity_threshold and
+                    similarity > best_similarity):
+                    best_match = input_seg_idx
+                    best_similarity = similarity
+
+            if best_match is not None:
+                used_input_segments.add(best_match)
 
             matches.append({
                 'reference_index': ref_seg_idx,
-                'user_index': best_match,
+                'input_index': best_match,
                 'similarity': best_similarity,
                 'reference_text': ref_texts[ref_seg_idx],
-                'user_text': user_texts[best_match] if best_match is not None else None
+                'input_text': input_texts[best_match] if best_match is not None else None,
+                'reference_start': reference_segments[ref_seg_idx].get('start', 0),
+                'reference_end': reference_segments[ref_seg_idx].get('end', 0),
+                'is_matched': best_match is not None
             })
 
         return matches
 
-    def _string_similarity_matrix(self, ref_texts: List[str], user_texts: List[str]) -> np.ndarray:
+    def _calculate_similarity_matrix(
+        self,
+        input_segments: List[Dict],
+        reference_segments: List[Dict],
+        valid_input_indices: List[int],
+        valid_ref_indices: List[int]
+    ) -> np.ndarray:
         """
-        Create similarity matrix using string matching as fallback.
+        Calculate similarity matrix combining text and audio features.
         """
-        matrix = np.zeros((len(ref_texts), len(user_texts)))
+        # Text similarity using TF-IDF
+        input_texts = [input_segments[i].get('text', '') for i in valid_input_indices]
+        ref_texts = [reference_segments[i].get('text', '') for i in valid_ref_indices]
+
+        all_texts = ref_texts + input_texts
+
+        if len(all_texts) > 1:
+            try:
+                tfidf_matrix = self.vectorizer.fit_transform(all_texts)
+                ref_tfidf = tfidf_matrix[:len(ref_texts)]
+                input_tfidf = tfidf_matrix[len(ref_texts):]
+                text_similarity = cosine_similarity(ref_tfidf, input_tfidf)
+            except Exception as e:
+                logger.warning(f"TF-IDF failed, using string similarity: {e}")
+                text_similarity = self._string_similarity_matrix(ref_texts, input_texts)
+        else:
+            text_similarity = np.array([[1.0]])
+
+        # Audio feature similarity
+        audio_similarity = self._audio_similarity_matrix(
+            input_segments, reference_segments,
+            valid_input_indices, valid_ref_indices
+        )
+
+        # Combine similarities (weighted: 60% text, 40% audio)
+        combined_similarity = 0.6 * text_similarity + 0.4 * audio_similarity
+
+        return combined_similarity
+
+    def _string_similarity_matrix(self, ref_texts: List[str], input_texts: List[str]) -> np.ndarray:
+        """Calculate string similarity using difflib."""
+        similarity_matrix = np.zeros((len(ref_texts), len(input_texts)))
 
         for i, ref_text in enumerate(ref_texts):
-            for j, user_text in enumerate(user_texts):
-                # Use sequence matcher for similarity
-                similarity = difflib.SequenceMatcher(None, ref_text.lower(), user_text.lower()).ratio()
-                matrix[i][j] = similarity
+            for j, input_text in enumerate(input_texts):
+                similarity = difflib.SequenceMatcher(None, ref_text.lower(), input_text.lower()).ratio()
+                similarity_matrix[i, j] = similarity
 
-        return matrix
+        return similarity_matrix
 
-    def _create_aligned_segments(self, user_segments: List[Dict], reference_segments: List[Dict],
-                                 alignment_map: List[Dict]) -> List[Dict]:
+    def _audio_similarity_matrix(
+        self,
+        input_segments: List[Dict],
+        reference_segments: List[Dict],
+        valid_input_indices: List[int],
+        valid_ref_indices: List[int]
+    ) -> np.ndarray:
+        """Calculate audio feature similarity."""
+        similarity_matrix = np.zeros((len(valid_ref_indices), len(valid_input_indices)))
+
+        for i, ref_idx in enumerate(valid_ref_indices):
+            ref_seg = reference_segments[ref_idx]
+
+            for j, input_idx in enumerate(valid_input_indices):
+                input_seg = input_segments[input_idx]
+
+                # Compare energy, pitch, duration
+                energy_sim = 1 - abs(ref_seg.get('energy', 0.5) - input_seg.get('energy', 0.5))
+                pitch_sim = 1 - abs(ref_seg.get('pitch', 0.5) - input_seg.get('pitch', 0.5))
+
+                # Duration similarity (normalized)
+                ref_duration = ref_seg.get('end', 0) - ref_seg.get('start', 0)
+                input_duration = input_seg.get('end', 0) - input_seg.get('start', 0)
+                duration_ratio = min(ref_duration, input_duration) / max(ref_duration, input_duration, 0.1)
+
+                # Combine audio features
+                audio_sim = (energy_sim + pitch_sim + duration_ratio) / 3
+                similarity_matrix[i, j] = audio_sim
+
+        return similarity_matrix
+
+    def _create_alignment_plan(self, matches: List[Dict], reference_segments: List[Dict]) -> List[Dict]:
         """
-        Create new segments with user audio data but reference timing.
+        Create temporal alignment plan based on matches.
         """
-        aligned_segments = []
+        alignment_plan = []
 
-        for match in alignment_map:
-            ref_idx = match['reference_index']
-            user_idx = match['user_index']
+        for match in matches:
+            ref_start = match['reference_start']
+            ref_end = match['reference_end']
 
-            if user_idx is None:
-                # No matching user segment found, create silence or skip
-                ref_seg = reference_segments[ref_idx]
-                aligned_segments.append({
-                    **ref_seg,
-                    'text': f"[MISSING: {ref_seg.get('text', '')}]",
-                    'user_segment_index': None,
-                    'alignment_type': 'missing',
-                    'similarity': 0.0
-                })
-            else:
-                # Merge user segment data with reference timing
-                user_seg = user_segments[user_idx]
-                ref_seg = reference_segments[ref_idx]
+            plan_item = {
+                'start_time': ref_start,
+                'end_time': ref_end,
+                'duration': ref_end - ref_start,
+                'input_segment_index': match['input_index'],
+                'reference_segment_index': match['reference_index'],
+                'is_silence': not match['is_matched'],
+                'similarity': match['similarity'],
+                'reference_text': match['reference_text']  # Add reference text to plan
+            }
 
-                aligned_segment = {
-                    # Use reference timing
-                    'start': ref_seg['start'],
-                    'end': ref_seg['end'],
-                    'duration': ref_seg['end'] - ref_seg['start'],
+            alignment_plan.append(plan_item)
 
-                    # Use user audio characteristics
-                    'text': user_seg['text'],
-                    'energy': user_seg.get('energy', 0.0),
-                    'pitch': user_seg.get('pitch', 0.0),
-                    'loudness': user_seg.get('loudness', 0.0),
-                    'spectral_centroid': user_seg.get('spectral_centroid', 0.0),
-                    'zero_crossing_rate': user_seg.get('zero_crossing_rate', 0.0),
-                    'mfcc': user_seg.get('mfcc', []),
-                    'chroma': user_seg.get('chroma', []),
-                    'tempo': user_seg.get('tempo', 0.0),
+        return alignment_plan
 
-                    # Alignment metadata
-                    'user_segment_index': user_idx,
-                    'reference_segment_index': ref_idx,
-                    'alignment_type': 'matched',
-                    'similarity': match['similarity'],
-                    'original_start': user_seg['start'],
-                    'original_end': user_seg['end'],
-                    'time_adjustment': ref_seg['start'] - user_seg['start']
-                }
-
-                aligned_segments.append(aligned_segment)
-
-        return aligned_segments
-
-    def _generate_alignment_info(self, user_segments: List[Dict], reference_segments: List[Dict],
-                                 alignment_map: List[Dict]) -> Dict:
+    def _create_temporal_audio(
+        self,
+        input_audio_path: str,
+        input_segments: List[Dict],
+        alignment_plan: List[Dict],
+        output_path: str
+    ) -> str:
         """
-        Generate statistics and information about the alignment process.
-        """
-        total_refs = len(reference_segments)
-        matched_refs = len([m for m in alignment_map if m['user_index'] is not None])
-        unmatched_refs = total_refs - matched_refs
-
-        similarities = [m['similarity'] for m in alignment_map if m['user_index'] is not None]
-        avg_similarity = np.mean(similarities) if similarities else 0.0
-
-        total_user_segments = len(user_segments)
-        used_user_segments = len(set(m['user_index'] for m in alignment_map if m['user_index'] is not None))
-        unused_user_segments = total_user_segments - used_user_segments
-
-        return {
-            'total_reference_segments': total_refs,
-            'matched_segments': matched_refs,
-            'unmatched_segments': unmatched_refs,
-            'match_rate': matched_refs / total_refs if total_refs > 0 else 0.0,
-            'average_similarity': avg_similarity,
-            'total_user_segments': total_user_segments,
-            'used_user_segments': used_user_segments,
-            'unused_user_segments': unused_user_segments,
-            'usage_rate': used_user_segments / total_user_segments if total_user_segments > 0 else 0.0,
-            'alignment_map': alignment_map
-        }
-
-    def create_aligned_audio(self, user_audio_path: str, aligned_segments: List[Dict],
-                             output_path: str) -> str:
-        """
-        Create new audio file with user vocals arranged according to reference timing.
-        Uses segment placement instead of time stretching to preserve audio quality.
-
-        Args:
-            user_audio_path: Path to user's audio file
-            aligned_segments: Segments with alignment information
-            output_path: Path for output audio file
-
-        Returns:
-            Path to created aligned audio file
+        Create time-aligned audio based on alignment plan.
         """
         try:
-            # Load user audio
-            y_user, sr = librosa.load(user_audio_path, sr=None)
+            # Load input audio
+            input_audio, sr = librosa.load(input_audio_path, sr=None)
 
-            # Calculate total duration needed
-            if not aligned_segments:
-                raise ValueError("No aligned segments provided")
+            # Calculate total duration from reference
+            total_duration = max([item['end_time'] for item in alignment_plan])
+            output_length = int(total_duration * sr)
 
-            total_duration = max(seg['end'] for seg in aligned_segments)
-            total_samples = int(total_duration * sr)
+            # Initialize output audio with silence
+            output_audio = np.zeros(output_length)
 
-            # Create output audio array
-            y_output = np.zeros(total_samples)
+            # Fill in matched segments
+            for plan_item in alignment_plan:
+                start_sample = int(plan_item['start_time'] * sr)
+                end_sample = int(plan_item['end_time'] * sr)
 
-            for segment in aligned_segments:
-                if segment.get('alignment_type') == 'missing':
-                    # Skip missing segments (they become silence)
-                    continue
+                if not plan_item['is_silence'] and plan_item['input_segment_index'] is not None:
+                    # Get input segment audio
+                    input_seg = input_segments[plan_item['input_segment_index']]
+                    seg_start_sample = int(input_seg['start'] * sr)
+                    seg_end_sample = int(input_seg['end'] * sr)
 
-                # Calculate sample indices for user audio (original timing)
-                user_start_sample = int(segment['original_start'] * sr)
-                user_end_sample = int(segment['original_end'] * sr)
+                    segment_audio = input_audio[seg_start_sample:seg_end_sample]
 
-                # Calculate sample indices for output audio (reference timing)
-                output_start_sample = int(segment['start'] * sr)
+                    # Time-stretch if needed to match reference timing
+                    target_length = end_sample - start_sample
+                    if len(segment_audio) != target_length and target_length > 0:
+                        stretch_ratio = len(segment_audio) / target_length
+                        segment_audio = librosa.effects.time_stretch(segment_audio, rate=stretch_ratio)
 
-                # Extract user audio segment at original length (no stretching)
-                user_segment = y_user[user_start_sample:user_end_sample]
+                        # Ensure exact length
+                        if len(segment_audio) > target_length:
+                            segment_audio = segment_audio[:target_length]
+                        elif len(segment_audio) < target_length:
+                            segment_audio = np.pad(segment_audio, (0, target_length - len(segment_audio)))
 
-                if len(user_segment) == 0:
-                    continue
+                    # Place in output
+                    output_audio[start_sample:end_sample] = segment_audio
 
-                # Calculate how much space we have in the reference timing
-                reference_duration = segment['end'] - segment['start']
-                reference_samples = int(reference_duration * sr)
-                user_samples = len(user_segment)
+                # For unmatched segments, leave as silence (already initialized)
 
-                if user_samples <= reference_samples:
-                    # User segment fits in reference slot - place it at the start
-                    end_idx = min(output_start_sample + user_samples, total_samples)
-                    y_output[output_start_sample:end_idx] = user_segment[:end_idx - output_start_sample]
-                else:
-                    # User segment is longer than reference slot - trim it
-                    # Option 1: Take the first part
-                    trimmed_segment = user_segment[:reference_samples]
-                    end_idx = min(output_start_sample + len(trimmed_segment), total_samples)
-                    y_output[output_start_sample:end_idx] = trimmed_segment[:end_idx - output_start_sample]
+            # Save output audio
+            sf.write(output_path, output_audio, sr)
+            logger.info(f"Created temporal audio: {output_path}")
 
-                    # Option 2: Take the middle part (preserves more vocal content)
-                    # start_trim = (user_samples - reference_samples) // 2
-                    # trimmed_segment = user_segment[start_trim:start_trim + reference_samples]
-                    # end_idx = min(output_start_sample + len(trimmed_segment), total_samples)
-                    # y_output[output_start_sample:end_idx] = trimmed_segment[:end_idx - output_start_sample]
-
-            # Apply gentle fade in/out to reduce clicks
-            fade_samples = min(int(0.01 * sr), len(y_output) // 20)  # 10ms fade or 5% of audio
-            if fade_samples > 0:
-                # Fade in
-                fade_in = np.linspace(0, 1, fade_samples)
-                y_output[:fade_samples] *= fade_in
-
-                # Fade out
-                fade_out = np.linspace(1, 0, fade_samples)
-                y_output[-fade_samples:] *= fade_out
-
-            # Save aligned audio
-            import soundfile as sf
-            sf.write(output_path, y_output, sr)
-
-            logger.info(f"Created aligned audio without time stretching: {output_path}")
             return output_path
 
         except Exception as e:
-            logger.error(f"Failed to create aligned audio: {e}")
+            logger.error(f"Failed to create temporal audio: {e}")
             raise
 
-    def create_arranged_audio(self, input_vocals_path: str, arranged_segments: List[Dict], output_path: str) -> str:
+    def _create_aligned_segments(self, alignment_plan: List[Dict], input_segments: List[Dict]) -> List[Dict]:
         """
-        Create audio file from arranged segments.
+        Create segment metadata for aligned output.
+        """
+        aligned_segments = []
 
-        Args:
-            input_vocals_path: Path to original input vocals audio
-            arranged_segments: List of segments in the desired order
-            output_path: Path where to save the arranged audio
+        for plan_item in alignment_plan:
+            if plan_item['is_silence']:
+                # Create silence segment
+                aligned_segment = {
+                    'start': plan_item['start_time'],
+                    'end': plan_item['end_time'],
+                    'text': '[SILENCE]',
+                    'segment_index': len(aligned_segments),
+                    'energy': 0.0,
+                    'pitch': 0.0,
+                    'duration': plan_item['duration'],
+                    'pause': 0.0,
+                    'energy_category': 'silence',
+                    'pitch_category': 'silence',
+                    'duration_category': 'medium',
+                    'text_density': 'none',
+                    'is_repetitive': False,
+                    'has_vocal_runs': False,
+                    'is_sustained': False,
+                    'likely_intro': False,
+                    'likely_outro': False,
+                    'likely_hook': False,
+                    'keywords': [],
+                    'word_count': 0,
+                    'unique_word_ratio': 0.0,
+                    # Add matching information for silence segments
+                    'alignment_similarity': 0.0,
+                    'original_segment_index': None,
+                    'matched_input_text': None,
+                    'reference_text': plan_item.get('reference_text', 'N/A')  # Get reference text even for silence
+                }
+            else:
+                # Copy and adjust input segment
+                input_seg = input_segments[plan_item['input_segment_index']]
+                aligned_segment = input_seg.copy()
 
-        Returns:
-            Path to created audio file
+                # Update timing to match reference
+                aligned_segment['start'] = plan_item['start_time']
+                aligned_segment['end'] = plan_item['end_time']
+                aligned_segment['segment_index'] = len(aligned_segments)
+
+                # Add alignment metadata with both texts
+                aligned_segment['alignment_similarity'] = plan_item['similarity']
+                aligned_segment['original_segment_index'] = plan_item['input_segment_index']
+                aligned_segment['matched_input_text'] = input_seg.get('text', '')
+                aligned_segment['reference_text'] = plan_item.get('reference_text', 'N/A')  # Ensure reference text is set
+
+            aligned_segments.append(aligned_segment)
+
+        return aligned_segments
+
+    def _generate_alignment_info(
+        self,
+        input_segments: List[Dict],
+        reference_segments: List[Dict],
+        matches: List[Dict],
+        alignment_plan: List[Dict]
+    ) -> Dict:
+        """
+        Generate alignment statistics and information.
+        """
+        matched_segments = len([m for m in matches if m['is_matched']])
+        total_reference_segments = len(reference_segments)
+        total_input_segments = len(input_segments)
+
+        similarities = [m['similarity'] for m in matches if m['is_matched']]
+        avg_similarity = sum(similarities) / len(similarities) if similarities else 0
+
+        # Calculate timing statistics
+        total_duration = max([item['end_time'] for item in alignment_plan])
+        silence_duration = sum([
+            item['duration'] for item in alignment_plan if item['is_silence']
+        ])
+
+        return {
+            'total_reference_segments': total_reference_segments,
+            'total_input_segments': total_input_segments,
+            'matched_segments': matched_segments,
+            'unmatched_segments': total_reference_segments - matched_segments,
+            'match_rate': matched_segments / total_reference_segments if total_reference_segments > 0 else 0,
+            'average_similarity': avg_similarity,
+            'used_input_segments': matched_segments,
+            'unused_input_segments': total_input_segments - matched_segments,
+            'usage_rate': matched_segments / total_input_segments if total_input_segments > 0 else 0,
+            'total_duration': total_duration,
+            'silence_duration': silence_duration,
+            'content_duration': total_duration - silence_duration,
+            'silence_percentage': (silence_duration / total_duration * 100) if total_duration > 0 else 0,
+            'alignment_method': 'temporal_alignment',
+            'similarity_threshold': self.similarity_threshold
+        }
+
+    def create_arranged_audio(self, input_path: str, arranged_segments: List[Dict], output_path: str) -> str:
+        """
+        Create audio file from arranged segments (for backward compatibility).
         """
         try:
-            # Load original audio
-            audio, sr = librosa.load(input_vocals_path, sr=None)
+            # Load input audio
+            audio, sr = librosa.load(input_path, sr=None)
 
-            # Create silence buffer for gaps
-            silence_duration = 0.5  # 500ms silence between segments
-            silence_samples = int(silence_duration * sr)
-            silence = np.zeros(silence_samples)
-
-            # Extract and concatenate segments
-            arranged_audio = []
-
-            for segment in arranged_segments:
-                if segment is None:
-                    # Add silence for missing segments
-                    arranged_audio.append(silence)
-                    continue
-
-                start_time = segment.get('start', 0)
-                end_time = segment.get('end', start_time + 3)  # Default 3s segment
-
-                start_sample = int(start_time * sr)
-                end_sample = int(end_time * sr)
-
-                # Extract segment audio (with bounds checking)
-                start_sample = max(0, start_sample)
-                end_sample = min(len(audio), end_sample)
-
-                if start_sample < end_sample:
-                    segment_audio = audio[start_sample:end_sample]
-                    arranged_audio.append(segment_audio)
-
-                # Add silence between segments (except for last segment)
-                if segment != arranged_segments[-1]:
-                    arranged_audio.append(silence)
-
-            # Concatenate all audio segments
-            if arranged_audio:
-                final_audio = np.concatenate(arranged_audio)
-
-                # Save arranged audio
-                import soundfile as sf
-                sf.write(output_path, final_audio, sr)
-
-                logger.info(f"Created arranged audio: {output_path}")
+            # Calculate total duration
+            if not arranged_segments:
                 return output_path
-            else:
-                raise Exception("No valid audio segments to arrange")
+
+            total_duration = max([seg['end'] for seg in arranged_segments])
+            output_length = int(total_duration * sr)
+            output_audio = np.zeros(output_length)
+
+            # Combine segments
+            for segment in arranged_segments:
+                if segment.get('text') == '[SILENCE]':
+                    continue  # Skip silence segments
+
+                start_sample = int(segment['start'] * sr)
+                end_sample = int(segment['end'] * sr)
+
+                # Get original segment timing if available
+                original_start = segment.get('original_start', segment['start'])
+                original_end = segment.get('original_end', segment['end'])
+
+                orig_start_sample = int(original_start * sr)
+                orig_end_sample = int(original_end * sr)
+
+                # Extract and place audio
+                if orig_end_sample <= len(audio):
+                    segment_audio = audio[orig_start_sample:orig_end_sample]
+                    target_length = end_sample - start_sample
+
+                    if len(segment_audio) != target_length and target_length > 0:
+                        # Time-stretch to fit
+                        stretch_ratio = len(segment_audio) / target_length
+                        segment_audio = librosa.effects.time_stretch(segment_audio, rate=stretch_ratio)
+
+                        # Ensure exact length
+                        if len(segment_audio) > target_length:
+                            segment_audio = segment_audio[:target_length]
+                        elif len(segment_audio) < target_length:
+                            segment_audio = np.pad(segment_audio, (0, target_length - len(segment_audio)))
+
+                    output_audio[start_sample:end_sample] = segment_audio
+
+            # Save output
+            sf.write(output_path, output_audio, sr)
+            return output_path
 
         except Exception as e:
             logger.error(f"Failed to create arranged audio: {e}")
             raise
+
+
+# Backward compatibility alias
+ReferenceAligner = TemporalAligner

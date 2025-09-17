@@ -221,7 +221,7 @@ export default function Home() {
     }
   };
 
-  // Step 3 - AI Arrange to match reference
+  // Step 3 - Temporal Alignment (renamed from AI Arrange)
   const handleArrangeToReference = async () => {
     if (!segments || !referenceSegments) {
       setError("Please process both input vocals and reference track first.");
@@ -248,18 +248,19 @@ export default function Home() {
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.error || "Arrangement to reference failed");
+        setError(data.error || "Temporal alignment failed");
         return;
       }
 
-      // Update segments with the arranged version
+      // Update segments with the aligned version
       setSegments(data.arranged_segments);
 
-      // Store AI analysis data for feedback
+      // Store alignment analysis data for feedback
       setAiAnalysisData({
         original_arrangement: data.original_arrangement,
         ai_analysis: data.ai_analysis,
-        reference_structure: data.reference_structure
+        reference_structure: data.reference_structure,
+        temporal_alignment_info: data.temporal_alignment_info
       });
 
       // Set alignment result with the arrangement info
@@ -268,7 +269,7 @@ export default function Home() {
         alignment_info: {
           total_reference_segments: data.reference_structure?.total_reference_segments || 0,
           matched_segments: data.reference_structure?.matched_segments || 0,
-          match_rate: data.ai_analysis?.confidence || 0,
+          match_rate: data.reference_structure?.match_rate || 0,
           average_similarity: data.ai_analysis?.confidence || 0,
           total_user_segments: segments.length,
           used_user_segments: data.reference_structure?.matched_segments || 0,
@@ -278,7 +279,7 @@ export default function Home() {
       });
 
     } catch (err) {
-      setError("Failed to arrange vocals to reference");
+      setError("Failed to perform temporal alignment");
     } finally {
       setIsArranging(false);
     }
@@ -319,15 +320,18 @@ export default function Home() {
     }
   };
 
+  // Add new state for showing detailed matching info
+  const [showMatchingDetails, setShowMatchingDetails] = useState<boolean>(false);
+
   return (
     <main className="min-h-screen bg-gray-900 text-white p-4">
       {/* Header */}
       <div className="max-w-6xl mx-auto mb-8">
         <h1 className="text-4xl font-bold text-center mb-4 text-teal-400">
-          AI-Driven Vocal Arranger
+          Temporal Vocal Aligner
         </h1>
         <p className="text-center text-gray-300 text-lg">
-          Upload or record freestyle vocals and let AI intelligently arrange them into a structured song
+          Upload freestyle vocals and align them to reference track timing with intelligent segment matching
         </p>
       </div>
 
@@ -501,20 +505,20 @@ export default function Home() {
         </div>
       </div>
 
-      {/* AI Arrangement Section */}
+      {/* Temporal Alignment Section (renamed) */}
       {segments && segments.length > 0 && (
         <div className="max-w-4xl mx-auto mb-8">
           <div className="bg-gray-800 p-6 rounded-2xl shadow-lg">
             <h2 className="text-2xl font-semibold mb-4 text-purple-300 text-center">
-              🎯 AI Arrangement
+              ⚡ Temporal Alignment
             </h2>
             <p className="text-gray-300 mb-6 text-center">
-              Choose genre and let AI arrange your segments to match reference structure
+              Align your segments to match reference track timing with intelligent text and audio similarity matching
             </p>
 
             {/* Genre Selection */}
             <div className="mb-6">
-              <label className="block text-sm font-medium mb-2 text-gray-300">Genre (Optional)</label>
+              <label className="block text-sm font-medium mb-2 text-gray-300">Audio Context (Optional)</label>
               <select
                 value={selectedGenre}
                 onChange={(e) => setSelectedGenre(e.target.value)}
@@ -528,7 +532,7 @@ export default function Home() {
               </select>
             </div>
 
-            {/* AI Arrange Button */}
+            {/* Temporal Align Button */}
             <button
               onClick={handleArrangeToReference}
               disabled={!segments || !referenceSegments || isArranging}
@@ -540,37 +544,26 @@ export default function Home() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
-                  Arranging...
+                  Aligning...
                 </span>
               ) : (
-                "🤖 AI Arrange to Reference"
+                "⚡ Temporal Align to Reference"
               )}
             </button>
 
-            {/* AI Model Status */}
+            {/* System Status (updated) */}
             {modelStatus && (
               <div className="mt-4 p-3 bg-gray-700/50 rounded-lg">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-300">AI Model Status:</span>
+                  <span className="text-sm text-gray-300">Temporal Alignment Status:</span>
                   <div className="flex items-center gap-2">
-                    {modelStatus.models?.ai_llm ? (
-                      <>
-                        <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                        <span className="text-sm text-green-400">Ready</span>
-                      </>
-                    ) : (
-                      <>
-                        <div className="w-2 h-2 bg-red-400 rounded-full"></div>
-                        <span className="text-sm text-red-400">Unavailable</span>
-                      </>
-                    )}
+                    <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                    <span className="text-sm text-green-400">Ready</span>
                   </div>
                 </div>
-                {!modelStatus.models?.ai_llm && (
-                  <div className="mt-2 text-xs text-yellow-400">
-                    ⚠️ AI model not available. Check OPENROUTER_API_KEY configuration.
-                  </div>
-                )}
+                <div className="mt-2 text-xs text-green-400">
+                  ✓ Text similarity matching, audio feature analysis, and time stretching available
+                </div>
               </div>
             )}
 
@@ -596,9 +589,202 @@ export default function Home() {
 
             {alignmentResult && (
               <div className="mt-4 text-center">
-                <span className="text-green-400 text-sm">✓ Arrangement complete!</span>
+                <span className="text-green-400 text-sm">✓ Temporal alignment complete!</span>
+                <button
+                  onClick={() => setShowMatchingDetails(!showMatchingDetails)}
+                  className="ml-4 text-blue-400 hover:text-blue-300 text-sm underline"
+                >
+                  {showMatchingDetails ? 'Hide' : 'Show'} Matching Details
+                </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Detailed Matching Visualization */}
+      {alignmentResult && showMatchingDetails && aiAnalysisData && (
+        <div className="max-w-6xl mx-auto mb-8">
+          <div className="bg-gray-800 p-6 rounded-2xl shadow-lg">
+            <h2 className="text-2xl font-semibold mb-4 text-blue-300 text-center">
+              🔍 Segment Matching Analysis
+            </h2>
+
+            {/* Matching Statistics */}
+            <div className="mb-6 p-4 bg-gray-700/50 rounded-lg">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                <div>
+                  <div className="text-2xl font-bold text-green-400">
+                    {((aiAnalysisData.temporal_alignment_info?.match_rate || 0) * 100).toFixed(1)}%
+                  </div>
+                  <div className="text-xs text-gray-300">Overall Match Rate</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-blue-400">
+                    {((aiAnalysisData.temporal_alignment_info?.average_similarity || 0) * 100).toFixed(1)}%
+                  </div>
+                  <div className="text-xs text-gray-300">Avg Similarity</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-purple-400">
+                    {aiAnalysisData.temporal_alignment_info?.matched_segments || 0}
+                  </div>
+                  <div className="text-xs text-gray-300">Segments Matched</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-yellow-400">
+                    {((aiAnalysisData.temporal_alignment_info?.silence_percentage || 0)).toFixed(1)}%
+                  </div>
+                  <div className="text-xs text-gray-300">Silence Padding</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Segment-by-Segment Matching Details */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-blue-300 mb-4">Segment Matching Details</h3>
+
+              {alignmentResult.aligned_segments.map((segment, index) => {
+                const isSilence = segment.text === '[SILENCE]';
+                const matchPercentage = segment.alignment_similarity ? (segment.alignment_similarity * 100) : 0;
+
+                return (
+                  <div key={index} className={`p-4 rounded-lg border-l-4 ${
+                    isSilence 
+                      ? 'bg-gray-700/30 border-gray-500' 
+                      : matchPercentage > 70 
+                        ? 'bg-green-900/20 border-green-400' 
+                        : matchPercentage > 40 
+                          ? 'bg-yellow-900/20 border-yellow-400'
+                          : 'bg-red-900/20 border-red-400'
+                  }`}>
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-mono text-gray-400">#{index + 1}</span>
+                        <span className="text-sm text-gray-300">
+                          {segment.start.toFixed(2)}s - {segment.end.toFixed(2)}s
+                        </span>
+                        {!isSilence && (
+                          <div className={`px-2 py-1 rounded text-xs font-bold ${
+                            matchPercentage > 70 
+                              ? 'bg-green-600 text-white' 
+                              : matchPercentage > 40 
+                                ? 'bg-yellow-600 text-white'
+                                : 'bg-red-600 text-white'
+                          }`}>
+                            {matchPercentage.toFixed(1)}% match
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right text-xs text-gray-400">
+                        Duration: {(segment.end - segment.start).toFixed(2)}s
+                      </div>
+                    </div>
+
+                    <div className="mb-3">
+                      <div className="text-white font-medium mb-1">
+                        {isSilence ? (
+                          <span className="italic text-gray-400">[No matching segment - filled with silence]</span>
+                        ) : (
+                          <div className="space-y-2">
+                            {/* Reference Segment */}
+                            <div className="bg-blue-900/20 p-3 rounded border-l-2 border-blue-400">
+                              <div className="text-xs text-blue-300 font-semibold mb-1">Reference Track:</div>
+                              <div className="text-white">"{segment.reference_text || 'N/A'}"</div>
+                            </div>
+
+                            {/* Matched Input Segment */}
+                            <div className="bg-green-900/20 p-3 rounded border-l-2 border-green-400">
+                              <div className="text-xs text-green-300 font-semibold mb-1">Your Input Match:</div>
+                              <div className="text-white">"{segment.matched_input_text || segment.text}"</div>
+                            </div>
+
+                            {/* Match Quality Indicator */}
+                            {matchPercentage > 0 && (
+                              <div className="flex items-center gap-2 mt-2">
+                                <div className="text-xs text-gray-400">Text Similarity:</div>
+                                <div className="flex-1 bg-gray-600 rounded-full h-2">
+                                  <div
+                                    className={`h-2 rounded-full ${
+                                      matchPercentage > 70 ? 'bg-green-400' : 
+                                      matchPercentage > 40 ? 'bg-yellow-400' : 'bg-red-400'
+                                    }`}
+                                    style={{width: `${matchPercentage}%`}}
+                                  ></div>
+                                </div>
+                                <div className="text-xs text-gray-300">{matchPercentage.toFixed(1)}%</div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {!isSilence && (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div>
+                          <span className="text-gray-400">Energy:</span>
+                          <div className="flex items-center gap-2">
+                            <div className="w-16 bg-gray-600 rounded-full h-2">
+                              <div
+                                className="bg-orange-400 h-2 rounded-full"
+                                style={{width: `${(segment.energy || 0) * 100}%`}}
+                              ></div>
+                            </div>
+                            <span className="text-orange-400">{((segment.energy || 0) * 100).toFixed(0)}%</span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <span className="text-gray-400">Pitch:</span>
+                          <div className="flex items-center gap-2">
+                            <div className="w-16 bg-gray-600 rounded-full h-2">
+                              <div
+                                className="bg-blue-400 h-2 rounded-full"
+                                style={{width: `${(segment.pitch || 0) * 100}%`}}
+                              ></div>
+                            </div>
+                            <span className="text-blue-400">{((segment.pitch || 0) * 100).toFixed(0)}%</span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <span className="text-gray-400">Words:</span>
+                          <span className="text-green-400 ml-2">{segment.word_count || 0}</span>
+                        </div>
+
+                        <div>
+                          <span className="text-gray-400">Type:</span>
+                          <span className="text-purple-400 ml-2">{segment.energy_category || 'medium'}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {!isSilence && segment.keywords && segment.keywords.length > 0 && (
+                      <div className="mt-2">
+                        <span className="text-gray-400 text-xs">Keywords: </span>
+                        {segment.keywords.slice(0, 3).map((keyword, i) => (
+                          <span key={i} className="inline-block bg-gray-600 text-xs px-2 py-1 rounded mr-2 text-gray-200">
+                            {keyword}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Matching Algorithm Info */}
+            <div className="mt-6 p-4 bg-gray-700/30 rounded-lg">
+              <h4 className="text-sm font-semibold text-gray-300 mb-2">Matching Algorithm</h4>
+              <div className="text-xs text-gray-400 space-y-1">
+                <div>• Text Similarity: TF-IDF vectorization + cosine similarity (60% weight)</div>
+                <div>• Audio Features: Energy, pitch, and duration matching (40% weight)</div>
+                <div>• Similarity Threshold: {((aiAnalysisData.reference_structure?.similarity_threshold || 0.3) * 100).toFixed(0)}% minimum for matching</div>
+                <div>• Time Alignment: Segments placed at reference timestamps with audio stretching</div>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -8,7 +8,7 @@ from flask_cors import CORS
 
 from audio_analysis.arrangement import AIVocalArranger
 from audio_analysis.extract_features import extract_segment_features
-from audio_analysis.reference_alignment import ReferenceAligner
+from audio_analysis.reference_alignment import ReferenceAligner, TemporalAligner
 from audio_analysis.whisperx_utils import transcribe_with_whisperx
 
 load_dotenv()
@@ -29,6 +29,9 @@ if not os.path.exists(FEEDBACK_FILE):
 # Initialize AI vocal arranger and reference aligner
 ai_arranger = AIVocalArranger()
 reference_aligner = ReferenceAligner()
+
+# Initialize temporal aligner (replacing LLM-based approach)
+temporal_aligner = TemporalAligner(similarity_threshold=0.3)
 
 
 @app.route('/audio/<filename>')
@@ -490,9 +493,16 @@ def process_reference_vocals():
 @app.route("/arrange_to_reference", methods=["POST"])
 def arrange_to_reference():
     """
-    Step 3: Use LLM to arrange input vocals segments to match reference track structure.
-    Takes processed input segments and reference segments, uses AI to create optimal arrangement.
-    This is the main arrangement endpoint used by the current UI.
+    Step 3: Temporal alignment - match input vocals to reference track timing.
+
+    This creates a time-aligned version where:
+    - Input segments are matched to reference segments based on text/audio similarity
+    - Output matches reference track duration exactly
+    - Unmatched reference segments become silence
+    - Input segments are placed at reference timestamps
+    - Handles partial matches (e.g., input starting midway through reference)
+
+    This is the main temporal alignment endpoint used by the current UI.
     """
     data = request.get_json()
     if not data or "input_segments" not in data or "reference_segments" not in data:
@@ -501,48 +511,51 @@ def arrange_to_reference():
     input_segments = data["input_segments"]
     reference_segments = data["reference_segments"]
     input_vocals_path = data.get("input_vocals_path")
-    genre_hint = data.get("genre")
+    genre_hint = data.get("genre")  # Not used in temporal alignment but kept for compatibility
+
+    if not input_vocals_path:
+        return jsonify({"error": "input_vocals_path is required for temporal alignment"}), 400
 
     try:
-        # Step 1: Get AI arrangement based on reference structure
-        arrangement, confidence, analysis = ai_arranger.arrange_segments_to_reference(
-            input_segments, reference_segments, genre_hint
+        # Create output filename
+        output_filename = f"temporal_aligned_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+        output_path = os.path.join(ALIGNED_FOLDER, output_filename)
+
+        # Perform temporal alignment
+        aligned_segments, alignment_info, aligned_audio_path = temporal_aligner.align_to_reference_timing(
+            input_segments,
+            reference_segments,
+            input_vocals_path,
+            output_path
         )
 
-        # Step 2: Reorder input segments according to AI arrangement
-        arranged_segments = [input_segments[i] for i in arrangement]
-
-        # Step 3: Create aligned audio if input vocals path provided
-        aligned_audio_path = None
-        if input_vocals_path:
-            output_filename = f"arranged_to_reference_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
-            output_path = os.path.join(ALIGNED_FOLDER, output_filename)
-
-            # Create arranged audio based on new segment order
-            aligned_audio_path = reference_aligner.create_arranged_audio(
-                input_vocals_path, arranged_segments, output_path
-            )
-
+        # Create compatibility response format
         return jsonify({
-            "arranged_segments": arranged_segments,
-            "original_arrangement": arrangement,
+            "arranged_segments": aligned_segments,
+            "original_arrangement": list(range(len(aligned_segments))),  # Sequential for temporal alignment
             "ai_analysis": {
-                "confidence": confidence,
-                "reasoning": analysis.get("reasoning", ""),
-                "method": "llm_reference_arrangement"
+                "confidence": alignment_info.get("average_similarity", 0),
+                "reasoning": f"Temporal alignment with {alignment_info.get('match_rate', 0):.1%} match rate. "
+                           f"{alignment_info.get('silence_percentage', 0):.1f}% silence padding.",
+                "method": "temporal_alignment"
             },
             "reference_structure": {
-                "total_reference_segments": len(reference_segments),
-                "matched_segments": len([s for s in arranged_segments if s]),
+                "total_reference_segments": alignment_info.get("total_reference_segments", 0),
+                "matched_segments": alignment_info.get("matched_segments", 0),
                 "energy_progression": [s.get("energy", 0) for s in reference_segments],
-                "timing_structure": [s.get("duration", 0) for s in reference_segments]
+                "timing_structure": [s.get("end", 0) - s.get("start", 0) for s in reference_segments],
+                "match_rate": alignment_info.get("match_rate", 0),
+                "silence_percentage": alignment_info.get("silence_percentage", 0),
+                "total_duration": alignment_info.get("total_duration", 0),
+                "similarity_threshold": temporal_aligner.similarity_threshold
             },
+            "temporal_alignment_info": alignment_info,
             "arranged_audio_url": f"/aligned/{output_filename}" if aligned_audio_path else None,
-            "method": "ai_reference_arrangement"
+            "method": "temporal_alignment"
         }), 200
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Temporal alignment failed: {str(e)}"}), 500
 
 
 if __name__ == "__main__":
