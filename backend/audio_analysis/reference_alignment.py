@@ -16,18 +16,27 @@ logger = logging.getLogger(__name__)
 
 class TemporalAligner:
     """
-    Temporal alignment system that matches input vocals to reference track timing.
+    Enhanced temporal alignment system that matches input vocals to reference track timing.
 
-    Fixed implementation that properly:
+    Multi-level matching approach:
+    1. Text similarity matching (word-level alignment)
+    2. Audio feature matching (energy, pitch, duration)
+    3. Windowed matching (1, 2, 3+ segment windows)
+    4. Best window selection based on overall match quality
+
+    Features:
     - Reorders input segments to match reference sequence
-    - Uses accurate similarity calculations
-    - Handles word-level and phrase-level alignment
+    - Uses accurate multi-level similarity calculations
+    - Handles windowed sequence matching for better context
     - Creates properly time-aligned output audio
     """
 
-    def __init__(self, similarity_threshold: float = 0.3):
+    def __init__(self, similarity_threshold: float = 0.3, audio_weight: float = 0.4, text_weight: float = 0.6):
         self.vectorizer = TfidfVectorizer(stop_words='english', lowercase=True)
         self.similarity_threshold = similarity_threshold
+        self.audio_weight = audio_weight  # Weight for audio feature matching
+        self.text_weight = text_weight    # Weight for text matching
+        self.max_window_size = 4          # Maximum window size to try
 
     def process_reference_track(self, reference_path: str) -> List[Dict]:
         """
@@ -108,8 +117,13 @@ class TemporalAligner:
             reference_segments: List[Dict]
     ) -> Dict:
         """
-        Find the optimal sequence alignment using dynamic programming approach.
-        This properly reorders input segments to match reference sequence.
+        Find the optimal sequence alignment using multi-level windowed matching approach.
+
+        Multi-level matching:
+        1. Text similarity (word matching)
+        2. Audio feature similarity (energy, pitch, duration)
+        3. Windowed matching (1, 2, 3+ segment windows)
+        4. Best window selection based on overall match quality
         """
         # Extract and clean text for comparison
         input_texts = [self._clean_text(seg.get('text', '')) for seg in input_segments]
@@ -118,154 +132,351 @@ class TemporalAligner:
         logger.info(f"Input texts: {input_texts}")
         logger.info(f"Reference texts: {ref_texts}")
 
-        # Create similarity matrix
-        similarity_matrix = self._calculate_text_similarity_matrix(input_texts, ref_texts)
-
-        # Find best alignment using sequence matching
-        alignment = self._find_best_sequence_alignment(
-            similarity_matrix, input_texts, ref_texts, input_segments, reference_segments
-        )
-
-        return alignment
-
-    def _clean_text(self, text: str) -> str:
-        """Clean and normalize text for comparison."""
-        if not text:
-            return ""
-        # Convert to lowercase, remove punctuation, normalize whitespace
-        text = re.sub(r'[^\w\s]', '', text.lower())
-        text = re.sub(r'\s+', ' ', text).strip()
-        return text
-
-    def _calculate_text_similarity_matrix(self, input_texts: List[str], ref_texts: List[str]) -> np.ndarray:
-        """
-        Calculate accurate text similarity matrix using multiple methods.
-        """
-        n_ref = len(ref_texts)
-        n_input = len(input_texts)
-        similarity_matrix = np.zeros((n_ref, n_input))
-
-        for i, ref_text in enumerate(ref_texts):
-            for j, input_text in enumerate(input_texts):
-                if not ref_text or not input_text:
-                    similarity_matrix[i, j] = 0.0
-                    continue
-
-                similarities = []
-
-                # 1. Exact match bonus
-                if ref_text == input_text:
-                    similarities.append(1.0)
-
-                # 2. Word overlap similarity (Jaccard index)
-                ref_words = set(ref_text.split())
-                input_words = set(input_text.split())
-                if ref_words or input_words:
-                    overlap = len(ref_words.intersection(input_words))
-                    union = len(ref_words.union(input_words))
-                    jaccard = overlap / union if union > 0 else 0.0
-                    similarities.append(jaccard)
-
-                # 3. Sequence similarity (difflib)
-                seq_sim = difflib.SequenceMatcher(None, ref_text, input_text).ratio()
-                similarities.append(seq_sim)
-
-                # 4. Levenshtein-based similarity
-                import editdistance
-                if ref_text and input_text:
-                    max_len = max(len(ref_text), len(input_text))
-                    if max_len > 0:
-                        edit_dist = editdistance.eval(ref_text, input_text)
-                        lev_sim = 1.0 - (edit_dist / max_len)
-                        similarities.append(lev_sim)
-
-                # Take the maximum similarity
-                final_similarity = max(similarities) if similarities else 0.0
-                similarity_matrix[i, j] = final_similarity
-
-        logger.info(f"Similarity matrix:\n{similarity_matrix}")
-        return similarity_matrix
-
-    def _find_best_sequence_alignment(
-            self,
-            similarity_matrix: np.ndarray,
-            input_texts: List[str],
-            ref_texts: List[str],
-            input_segments: List[Dict],
-            reference_segments: List[Dict]
-    ) -> Dict:
-        """
-        Find the best sequence alignment that maximizes overall similarity
-        while maintaining sequence order as much as possible.
-
-        FIXED: Now ensures ALL input segments are used, even if similarity is low.
-        """
-        n_ref, n_input = similarity_matrix.shape
-
-        # Try different alignment strategies and pick the best one
-        strategies = [
-            self._comprehensive_alignment,
-            self._greedy_alignment,
-            self._dynamic_programming_alignment,
-            self._sequence_aware_alignment
-        ]
-
+        # Try different window sizes for multi-level matching
         best_alignment = None
         best_score = -1
+        best_window_size = 1
 
-        for strategy in strategies:
+        # Test window sizes from 1 to max_window_size
+        max_window = min(self.max_window_size, len(input_segments), len(reference_segments))
+
+        for window_size in range(1, max_window + 1):
+            logger.info(f"Testing window size: {window_size}")
+
             try:
-                alignment = strategy(
-                    similarity_matrix, input_texts, ref_texts,
-                    input_segments, reference_segments
+                # Create multi-level similarity matrix for this window size
+                similarity_matrix = self._calculate_multilevel_similarity_matrix(
+                    input_segments, reference_segments, input_texts, ref_texts, window_size
                 )
-                score = self._score_alignment(alignment, similarity_matrix)
 
-                logger.info(
-                    f"Strategy {strategy.__name__}: score = {score:.3f}, coverage = {sum(alignment['reference_coverage'])}/{len(alignment['reference_coverage'])}")
+                # Find best alignment using this window size
+                alignment = self._find_windowed_alignment(
+                    similarity_matrix, input_texts, ref_texts,
+                    input_segments, reference_segments, window_size
+                )
+
+                # Score this alignment
+                score = self._score_windowed_alignment(alignment, similarity_matrix, window_size)
+
+                logger.info(f"Window size {window_size}: score = {score:.3f}, "
+                          f"matches = {len([m for m in alignment['matches'] if m['is_matched']])}")
 
                 if score > best_score:
                     best_score = score
                     best_alignment = alignment
+                    best_window_size = window_size
+
             except Exception as e:
-                logger.warning(f"Strategy {strategy.__name__} failed: {e}")
+                logger.warning(f"Window size {window_size} failed: {e}")
                 continue
 
+        logger.info(f"Best alignment: window_size={best_window_size}, score={best_score:.3f}")
+
         if best_alignment is None:
-            # Fallback: create comprehensive alignment that uses all segments
-            best_alignment = self._create_fallback_alignment(n_input, n_ref)
+            # Fallback to single segment matching
+            similarity_matrix = self._calculate_multilevel_similarity_matrix(
+                input_segments, reference_segments, input_texts, ref_texts, 1
+            )
+            best_alignment = self._find_windowed_alignment(
+                similarity_matrix, input_texts, ref_texts,
+                input_segments, reference_segments, 1
+            )
 
-        # Ensure all input segments are used somewhere
-        best_alignment = self._ensure_complete_coverage(
-            best_alignment, similarity_matrix, input_segments, reference_segments
-        )
-
-        logger.info(
-            f"Final alignment: {best_score:.3f} score, {sum(best_alignment['reference_coverage'])}/{len(best_alignment['reference_coverage'])} reference coverage, {len([m for m in best_alignment['matches'] if m['input_idx'] is not None])}/{len(input_segments)} input usage")
         return best_alignment
 
-    def _comprehensive_alignment(
+    def _calculate_multilevel_similarity_matrix(
+            self,
+            input_segments: List[Dict],
+            reference_segments: List[Dict],
+            input_texts: List[str],
+            ref_texts: List[str],
+            window_size: int
+    ) -> np.ndarray:
+        """
+        Calculate multi-level similarity matrix combining text and audio features
+        for different window sizes.
+        """
+        n_ref = len(reference_segments) - window_size + 1
+        n_input = len(input_segments) - window_size + 1
+
+        if n_ref <= 0 or n_input <= 0:
+            # Fallback for small segments
+            return self._calculate_single_segment_similarity(
+                input_segments, reference_segments, input_texts, ref_texts
+            )
+
+        similarity_matrix = np.zeros((n_ref, n_input))
+
+        logger.info(f"Computing {window_size}-window similarity matrix: {n_ref}x{n_input}")
+
+        for ref_idx in range(n_ref):
+            for input_idx in range(n_input):
+                # Get window segments
+                ref_window = reference_segments[ref_idx:ref_idx + window_size]
+                input_window = input_segments[input_idx:input_idx + window_size]
+
+                # Calculate combined similarity for this window
+                similarity = self._calculate_window_similarity(
+                    input_window, ref_window, window_size
+                )
+
+                similarity_matrix[ref_idx, input_idx] = similarity
+
+        logger.info(f"Window {window_size} similarity matrix:\n{similarity_matrix}")
+        return similarity_matrix
+
+    def _calculate_window_similarity(
+            self,
+            input_window: List[Dict],
+            ref_window: List[Dict],
+            window_size: int
+    ) -> float:
+        """
+        Calculate similarity for a window of segments using multi-level matching:
+        1. Text similarity (60% weight)
+        2. Audio feature similarity (40% weight)
+        """
+        text_similarities = []
+        audio_similarities = []
+
+        # Calculate similarities for each segment pair in the window
+        for i in range(window_size):
+            input_seg = input_window[i]
+            ref_seg = ref_window[i]
+
+            # Text similarity
+            text_sim = self._calculate_text_segment_similarity(
+                input_seg.get('text', ''), ref_seg.get('text', '')
+            )
+            text_similarities.append(text_sim)
+
+            # Audio feature similarity
+            audio_sim = self._calculate_audio_feature_similarity(input_seg, ref_seg)
+            audio_similarities.append(audio_sim)
+
+        # Average similarities across the window
+        avg_text_similarity = sum(text_similarities) / len(text_similarities)
+        avg_audio_similarity = sum(audio_similarities) / len(audio_similarities)
+
+        # Window coherence bonus - reward consecutive matching
+        window_coherence = self._calculate_window_coherence(input_window, ref_window)
+
+        # Combined similarity with weights
+        combined_similarity = (
+            self.text_weight * avg_text_similarity +
+            self.audio_weight * avg_audio_similarity +
+            0.1 * window_coherence  # Small bonus for window coherence
+        )
+
+        return min(1.0, combined_similarity)
+
+    def _calculate_text_segment_similarity(self, input_text: str, ref_text: str) -> float:
+        """
+        Enhanced text similarity calculation with multiple methods.
+        """
+        if not input_text or not ref_text:
+            return 0.0
+
+        # Clean texts
+        input_clean = self._clean_text(input_text)
+        ref_clean = self._clean_text(ref_text)
+
+        if not input_clean or not ref_clean:
+            return 0.0
+
+        similarities = []
+
+        # 1. Exact match bonus
+        if input_clean == ref_clean:
+            return 1.0
+
+        # 2. Word overlap similarity (Jaccard index)
+        input_words = set(input_clean.split())
+        ref_words = set(ref_clean.split())
+        if input_words and ref_words:
+            intersection = len(input_words.intersection(ref_words))
+            union = len(input_words.union(ref_words))
+            jaccard = intersection / union if union > 0 else 0.0
+            similarities.append(jaccard)
+
+        # 3. Sequence similarity (difflib)
+        seq_sim = difflib.SequenceMatcher(None, input_clean, ref_clean).ratio()
+        similarities.append(seq_sim)
+
+        # 4. Levenshtein-based similarity
+        try:
+            import editdistance
+            max_len = max(len(input_clean), len(ref_clean))
+            if max_len > 0:
+                edit_dist = editdistance.eval(input_clean, ref_clean)
+                lev_sim = 1.0 - (edit_dist / max_len)
+                similarities.append(lev_sim)
+        except ImportError:
+            pass
+
+        # 5. Substring matching bonus
+        if input_clean in ref_clean or ref_clean in input_clean:
+            similarities.append(0.8)
+
+        return max(similarities) if similarities else 0.0
+
+    def _calculate_audio_feature_similarity(self, input_seg: Dict, ref_seg: Dict) -> float:
+        """
+        Calculate audio feature similarity between two segments.
+        Matches energy, pitch, and duration as requested.
+        """
+        similarities = []
+
+        # 1. Energy similarity (normalized 0-1)
+        input_energy = input_seg.get('energy', 0.5)
+        ref_energy = ref_seg.get('energy', 0.5)
+        energy_sim = 1.0 - abs(input_energy - ref_energy)
+        similarities.append(energy_sim)
+
+        # 2. Pitch similarity (normalized 0-1)
+        input_pitch = input_seg.get('pitch', 0.5)
+        ref_pitch = ref_seg.get('pitch', 0.5)
+        pitch_sim = 1.0 - abs(input_pitch - ref_pitch)
+        similarities.append(pitch_sim)
+
+        # 3. Duration similarity
+        input_duration = input_seg.get('end', 0) - input_seg.get('start', 0)
+        ref_duration = ref_seg.get('end', 0) - ref_seg.get('start', 0)
+
+        if input_duration > 0 and ref_duration > 0:
+            duration_ratio = min(input_duration, ref_duration) / max(input_duration, ref_duration)
+            similarities.append(duration_ratio)
+        else:
+            similarities.append(0.5)  # Neutral score for missing duration
+
+        # 4. Categorical feature matching (bonus points)
+        categorical_bonus = 0.0
+
+        # Energy category matching
+        if (input_seg.get('energy_category', '') == ref_seg.get('energy_category', '') and
+            input_seg.get('energy_category', '')):
+            categorical_bonus += 0.1
+
+        # Pitch category matching
+        if (input_seg.get('pitch_category', '') == ref_seg.get('pitch_category', '') and
+            input_seg.get('pitch_category', '')):
+            categorical_bonus += 0.1
+
+        # Musical characteristics matching
+        musical_features = ['is_repetitive', 'has_vocal_runs', 'is_sustained']
+        matching_features = sum(1 for feat in musical_features
+                               if input_seg.get(feat, False) == ref_seg.get(feat, False))
+        categorical_bonus += (matching_features / len(musical_features)) * 0.1
+
+        # Average audio similarities + categorical bonus
+        avg_audio_sim = sum(similarities) / len(similarities)
+        return min(1.0, avg_audio_sim + categorical_bonus)
+
+    def _calculate_window_coherence(self, input_window: List[Dict], ref_window: List[Dict]) -> float:
+        """
+        Calculate coherence bonus for windowed matching.
+        Rewards windows where segments flow naturally together.
+        """
+        if len(input_window) <= 1:
+            return 0.0
+
+        coherence_score = 0.0
+
+        # Check energy flow consistency
+        input_energy_flow = [seg.get('energy', 0.5) for seg in input_window]
+        ref_energy_flow = [seg.get('energy', 0.5) for seg in ref_window]
+
+        # Calculate energy transition patterns
+        input_transitions = [input_energy_flow[i+1] - input_energy_flow[i]
+                           for i in range(len(input_energy_flow)-1)]
+        ref_transitions = [ref_energy_flow[i+1] - ref_energy_flow[i]
+                         for i in range(len(ref_energy_flow)-1)]
+
+        # Reward similar energy transition patterns
+        if input_transitions and ref_transitions:
+            transition_similarity = 0.0
+            for i_trans, r_trans in zip(input_transitions, ref_transitions):
+                # Similar direction bonus
+                if (i_trans > 0 and r_trans > 0) or (i_trans < 0 and r_trans < 0):
+                    transition_similarity += 0.5
+                # Similar magnitude bonus
+                magnitude_sim = 1.0 - abs(abs(i_trans) - abs(r_trans))
+                transition_similarity += magnitude_sim * 0.5
+
+            coherence_score += transition_similarity / len(input_transitions) * 0.5
+
+        # Check text flow consistency (consecutive word relationships)
+        for i in range(len(input_window) - 1):
+            input_words = set(self._clean_text(input_window[i].get('text', '')).split())
+            next_input_words = set(self._clean_text(input_window[i+1].get('text', '')).split())
+            ref_words = set(self._clean_text(ref_window[i].get('text', '')).split())
+            next_ref_words = set(self._clean_text(ref_window[i+1].get('text', '')).split())
+
+            # Reward if word relationships are similar
+            input_overlap = len(input_words.intersection(next_input_words))
+            ref_overlap = len(ref_words.intersection(next_ref_words))
+
+            if input_overlap > 0 and ref_overlap > 0:
+                coherence_score += 0.2
+
+        return min(1.0, coherence_score)
+
+    def _calculate_single_segment_similarity(
+            self,
+            input_segments: List[Dict],
+            reference_segments: List[Dict],
+            input_texts: List[str],
+            ref_texts: List[str]
+    ) -> np.ndarray:
+        """
+        Fallback single segment similarity matrix.
+        """
+        n_ref = len(reference_segments)
+        n_input = len(input_segments)
+        similarity_matrix = np.zeros((n_ref, n_input))
+
+        for i in range(n_ref):
+            for j in range(n_input):
+                text_sim = self._calculate_text_segment_similarity(
+                    input_texts[j], ref_texts[i]
+                )
+                audio_sim = self._calculate_audio_feature_similarity(
+                    input_segments[j], reference_segments[i]
+                )
+
+                combined_sim = self.text_weight * text_sim + self.audio_weight * audio_sim
+                similarity_matrix[i, j] = combined_sim
+
+        return similarity_matrix
+
+    def _find_windowed_alignment(
             self,
             similarity_matrix: np.ndarray,
             input_texts: List[str],
             ref_texts: List[str],
             input_segments: List[Dict],
-            reference_segments: List[Dict]
+            reference_segments: List[Dict],
+            window_size: int
     ) -> Dict:
         """
-        Comprehensive alignment that ensures ALL input segments are used.
-        Uses a two-pass approach:
-        1. Match high-similarity segments first
-        2. Force remaining segments into best available positions
+        Find the best alignment using windowed segments and multi-level matching.
+        Considers text similarity, audio feature similarity, and window coherence.
         """
         n_ref, n_input = similarity_matrix.shape
-        matches = []
+
+        # Initialize matches
+        matches = [[{
+            'reference_idx': None,
+            'input_idx': None,
+            'similarity': 0.0,
+            'is_matched': False,
+            'match_type': 'unmatched'
+        } for _ in range(n_input)] for _ in range(n_ref)]
+
+        # Track used input segments
         used_input = set()
 
-        logger.info(f"Starting comprehensive alignment: {n_input} input -> {n_ref} reference segments")
-
         # Pass 1: High-confidence matches (above threshold)
-        high_confidence_matches = []
         for ref_idx in range(n_ref):
             best_input_idx = None
             best_similarity = 0.0
@@ -278,16 +489,61 @@ class TemporalAligner:
                         best_input_idx = input_idx
 
             if best_input_idx is not None:
-                high_confidence_matches.append({
+                matches[ref_idx][best_input_idx] = {
                     'reference_idx': ref_idx,
                     'input_idx': best_input_idx,
                     'similarity': best_similarity,
                     'is_matched': True,
                     'match_type': 'high_confidence'
-                })
+                }
                 used_input.add(best_input_idx)
+
+        # Pass 2: Windowed matching - try to find best input segment for each reference segment
+        for ref_idx in range(n_ref):
+            if matches[ref_idx][0]['is_matched']:
+                continue  # Already matched in pass 1
+
+            # Get the window of reference segments
+            ref_window = [ref_idx + i for i in range(window_size) if ref_idx + i < n_ref]
+
+            # Find the best input segment for this window
+            best_input_idx = None
+            best_window_score = -1
+
+            for input_idx in range(n_input):
+                if input_idx in used_input:
+                    continue  # Skip already used input segments
+
+                # Calculate the windowed similarity score
+                window_score = 0.0
+                for r_idx in ref_window:
+                    window_score += matches[r_idx][input_idx]['similarity'] if matches[r_idx][input_idx]['is_matched'] else 0.0
+
+                if window_score > best_window_score:
+                    best_window_score = window_score
+                    best_input_idx = input_idx
+
+            if best_input_idx is not None:
+                # Match this input segment to the entire window of reference segments
+                for r_idx in ref_window:
+                    matches[r_idx][best_input_idx] = {
+                        'reference_idx': r_idx,
+                        'input_idx': best_input_idx,
+                        'similarity': similarity_matrix[r_idx][best_input_idx],
+                        'is_matched': True,
+                        'match_type': 'windowed_match'
+                    }
+                used_input.add(best_input_idx)
+
+        # Compile final matches
+        final_matches = []
+        for ref_idx in range(n_ref):
+            best_match = max(matches[ref_idx], key=lambda m: m['similarity'], default=None)
+            if best_match and best_match['is_matched']:
+                final_matches.append(best_match)
             else:
-                high_confidence_matches.append({
+                # Unmatched reference segment, create a synthetic match
+                final_matches.append({
                     'reference_idx': ref_idx,
                     'input_idx': None,
                     'similarity': 0.0,
@@ -295,272 +551,137 @@ class TemporalAligner:
                     'match_type': 'unmatched'
                 })
 
-        logger.info(f"High-confidence matches: {len([m for m in high_confidence_matches if m['is_matched']])}/{n_ref}")
-
-        # Pass 2: Force remaining input segments into best available positions
-        unused_input = [i for i in range(n_input) if i not in used_input]
-        unmatched_refs = [i for i, match in enumerate(high_confidence_matches) if not match['is_matched']]
-
-        logger.info(f"Unused input segments: {len(unused_input)}, Unmatched reference positions: {len(unmatched_refs)}")
-
-        # If we have unused input segments, we need to place them somewhere
-        if unused_input:
-            if unmatched_refs:
-                # Place unused inputs in unmatched reference positions (best similarity)
-                for input_idx in unused_input[:len(unmatched_refs)]:
-                    best_ref_idx = None
-                    best_similarity = -1
-
-                    for ref_idx in unmatched_refs:
-                        similarity = similarity_matrix[ref_idx, input_idx]
-                        if similarity > best_similarity:
-                            best_similarity = similarity
-                            best_ref_idx = ref_idx
-
-                    if best_ref_idx is not None:
-                        # Update the match for this reference position
-                        high_confidence_matches[best_ref_idx] = {
-                            'reference_idx': best_ref_idx,
-                            'input_idx': input_idx,
-                            'similarity': best_similarity,
-                            'is_matched': True,
-                            'match_type': 'forced_match'
-                        }
-                        unmatched_refs.remove(best_ref_idx)
-                        used_input.add(input_idx)
-
-            # If we still have unused input segments, extend the reference to accommodate them
-            remaining_unused = [i for i in unused_input if i not in used_input]
-            if remaining_unused:
-                logger.info(f"Extending reference with {len(remaining_unused)} additional segments")
-
-                # Add extra reference positions for remaining input segments
-                for input_idx in remaining_unused:
-                    # Find the best position to insert this segment
-                    best_position = len(high_confidence_matches)  # Default: append at end
-
-                    # Try to find a good position based on sequence similarity
-                    if len(high_confidence_matches) > 0:
-                        # Calculate where this segment would fit best sequentially
-                        input_text = input_texts[input_idx]
-                        best_score = -1
-
-                        for pos in range(len(high_confidence_matches) + 1):
-                            # Calculate fitness for inserting at this position
-                            score = self._calculate_insertion_fitness(
-                                pos, input_idx, input_texts, ref_texts, high_confidence_matches
-                            )
-                            if score > best_score:
-                                best_score = score
-                                best_position = pos
-
-                    # Create synthetic reference timing for this position
-                    synthetic_ref_timing = self._create_synthetic_reference_timing(
-                        best_position, reference_segments, input_segments[input_idx]
-                    )
-
-                    # Insert the match at the determined position
-                    match = {
-                        'reference_idx': len(reference_segments) + len(remaining_unused) - len(
-                            [x for x in remaining_unused if
-                             remaining_unused.index(x) >= remaining_unused.index(input_idx)]),
-                        'input_idx': input_idx,
-                        'similarity': 0.3,  # Default similarity for forced matches
-                        'is_matched': True,
-                        'match_type': 'extended_reference',
-                        'synthetic_timing': synthetic_ref_timing
-                    }
-
-                    high_confidence_matches.insert(best_position, match)
-
         return {
-            'matches': high_confidence_matches,
-            'input_order': [m['input_idx'] for m in high_confidence_matches],
-            'reference_coverage': [m['is_matched'] for m in high_confidence_matches],
-            'total_similarity': sum(m['similarity'] for m in high_confidence_matches if m['is_matched'])
+            'matches': final_matches,
+            'input_order': [m['input_idx'] for m in final_matches],
+            'reference_coverage': [m['is_matched'] for m in final_matches],
+            'total_similarity': sum(m['similarity'] for m in final_matches if m['is_matched'])
         }
 
-    def _calculate_insertion_fitness(
-            self,
-            position: int,
-            input_idx: int,
-            input_texts: List[str],
-            ref_texts: List[str],
-            existing_matches: List[Dict]
-    ) -> float:
+    def _score_windowed_alignment(self, alignment: Dict, similarity_matrix: np.ndarray, window_size: int) -> float:
         """
-        Calculate how well an input segment would fit at a given position.
+        Score an alignment based on windowed matching quality.
+        Considers average similarity, coverage, and sequence coherence.
         """
-        if position == 0 or position >= len(existing_matches):
-            return 0.1  # Low fitness for boundary positions
-
-        input_text = input_texts[input_idx]
-
-        # Check similarity with neighboring segments
-        fitness = 0.0
-
-        if position > 0:
-            prev_match = existing_matches[position - 1]
-            if prev_match['is_matched'] and prev_match['input_idx'] is not None:
-                prev_text = input_texts[prev_match['input_idx']]
-                fitness += self._calculate_text_similarity(input_text, prev_text) * 0.5
-
-        if position < len(existing_matches):
-            next_match = existing_matches[position]
-            if next_match['is_matched'] and next_match['input_idx'] is not None:
-                next_text = input_texts[next_match['input_idx']]
-                fitness += self._calculate_text_similarity(input_text, next_text) * 0.5
-
-        return fitness
-
-    def _calculate_text_similarity(self, text1: str, text2: str) -> float:
-        """Calculate simple text similarity."""
-        if not text1 or not text2:
+        if not alignment['matches']:
             return 0.0
 
-        words1 = set(text1.lower().split())
-        words2 = set(text2.lower().split())
+        # Base score: average similarity of matched segments
+        matched_similarities = [m['similarity'] for m in alignment['matches'] if m['is_matched']]
+        avg_similarity = sum(matched_similarities) / max(1, len(matched_similarities))
 
-        if not words1 or not words2:
-            return 0.0
+        # Coverage score: how many reference segments are matched
+        coverage = sum(alignment['reference_coverage']) / len(alignment['reference_coverage'])
 
-        intersection = words1.intersection(words2)
-        union = words1.union(words2)
+        # Input usage score: how many input segments are used
+        input_usage = len([m for m in alignment['matches'] if m['input_idx'] is not None]) / max(1,
+                                                                                                 similarity_matrix.shape[
+                                                                                                     1])
 
-        return len(intersection) / len(union) if union else 0.0
+        # Sequence coherence: bonus for maintaining input order
+        sequence_bonus = 0.0
+        input_indices = [m['input_idx'] for m in alignment['matches'] if m['input_idx'] is not None]
+        if len(input_indices) > 1:
+            ordered_count = 0
+            for i in range(len(input_indices) - 1):
+                if input_indices[i] < input_indices[i + 1]:
+                    ordered_count += 1
+            sequence_bonus = ordered_count / (len(input_indices) - 1) * 0.15
 
-    def _create_synthetic_reference_timing(
+        # Window size penalty: discourage very large window sizes
+        window_size_penalty = max(0, window_size - 1) * 0.05
+
+        # Combined score prioritizing input usage to avoid silence gaps
+        return 0.3 * avg_similarity + 0.2 * coverage + 0.4 * input_usage + 0.1 * sequence_bonus - window_size_penalty
+
+    def _create_temporal_audio(
             self,
-            position: int,
-            reference_segments: List[Dict],
-            input_segment: Dict
-    ) -> Dict:
+            input_audio_path: str,
+            aligned_segments: List[Dict],
+            output_path: str
+    ) -> str:
         """
-        Create synthetic reference timing for input segments that extend beyond reference.
+        Create time-aligned audio file from aligned segments.
+        FIXED: Now handles synthetic timing and ensures all segments are included.
         """
-        input_duration = input_segment.get('end', 0) - input_segment.get('start', 0)
+        try:
+            # Load input audio
+            audio, sr = librosa.load(input_audio_path, sr=None)
 
-        if position == 0:
-            # Insert at beginning
-            start_time = 0.0
-            end_time = input_duration
-        elif position >= len(reference_segments):
-            # Append at end
-            last_ref_end = reference_segments[-1].get('end', 0) if reference_segments else 0
-            start_time = last_ref_end
-            end_time = start_time + input_duration
-        else:
-            # Insert in middle - create space
-            prev_end = reference_segments[position - 1].get('end', 0) if position > 0 else 0
-            next_start = reference_segments[position].get('start', input_duration) if position < len(
-                reference_segments) else prev_end + input_duration
+            # Calculate total duration from aligned segments (including synthetic ones)
+            if not aligned_segments:
+                return output_path
 
-            available_space = next_start - prev_end
-            if available_space >= input_duration:
-                start_time = prev_end
-                end_time = start_time + input_duration
-            else:
-                # Not enough space, extend the timeline
-                start_time = prev_end
-                end_time = start_time + input_duration
+            total_duration = max([seg['end'] for seg in aligned_segments])
+            output_length = int(total_duration * sr)
+            output_audio = np.zeros(output_length)
 
-        return {
-            'start': start_time,
-            'end': end_time,
-            'text': input_segment.get('text', ''),
-            'synthetic': True
-        }
+            logger.info(f"Creating audio: {len(aligned_segments)} segments, {total_duration:.2f}s total duration")
 
-    def _create_fallback_alignment(self, n_input: int, n_ref: int) -> Dict:
-        """
-        Create a fallback alignment that uses all input segments.
-        """
-        matches = []
+            # Process each aligned segment
+            for segment in aligned_segments:
+                if segment.get('text') == '[SILENCE]':
+                    continue  # Skip silence segments (leave as zeros)
 
-        # Map input segments to reference positions (cycling if needed)
-        for i in range(max(n_input, n_ref)):
-            ref_idx = i % n_ref if n_ref > 0 else 0
-            input_idx = i % n_input if i < n_input else None
+                # Target timing (from reference or synthetic)
+                target_start = segment['start']
+                target_end = segment['end']
+                target_start_sample = int(target_start * sr)
+                target_end_sample = int(target_end * sr)
+                target_length = target_end_sample - target_start_sample
 
-            matches.append({
-                'reference_idx': ref_idx if i < n_ref else i,
-                'input_idx': input_idx,
-                'similarity': 0.2,  # Low similarity for fallback
-                'is_matched': input_idx is not None,
-                'match_type': 'fallback'
-            })
+                # Original timing (from input)
+                if 'original_start' in segment and 'original_end' in segment:
+                    orig_start = segment['original_start']
+                    orig_end = segment['original_end']
+                    orig_start_sample = int(orig_start * sr)
+                    orig_end_sample = int(orig_end * sr)
 
-        return {
-            'matches': matches,
-            'input_order': [m['input_idx'] for m in matches],
-            'reference_coverage': [m['is_matched'] for m in matches],
-            'total_similarity': sum(m['similarity'] for m in matches if m['is_matched'])
-        }
+                    # Extract original audio segment
+                    if orig_end_sample <= len(audio) and orig_start_sample >= 0:
+                        segment_audio = audio[orig_start_sample:orig_end_sample]
 
-    def _ensure_complete_coverage(
-            self,
-            alignment: Dict,
-            similarity_matrix: np.ndarray,
-            input_segments: List[Dict],
-            reference_segments: List[Dict]
-    ) -> Dict:
-        """
-        Ensure all input segments are covered in the alignment.
-        """
-        n_ref, n_input = similarity_matrix.shape
-        used_input_indices = set()
+                        # Time-stretch to fit target duration
+                        if len(segment_audio) > 0 and target_length > 0:
+                            if len(segment_audio) != target_length:
+                                # Use librosa for time stretching
+                                stretch_ratio = len(segment_audio) / target_length
+                                try:
+                                    segment_audio = librosa.effects.time_stretch(segment_audio, rate=stretch_ratio)
+                                except Exception as e:
+                                    logger.warning(
+                                        f"Time stretching failed for segment {segment.get('segment_index', '?')}: {e}")
+                                    # Fallback: simple resampling
+                                    if target_length > 0:
+                                        segment_audio = librosa.resample(segment_audio, orig_sr=len(segment_audio),
+                                                                         target_sr=target_length)
 
-        # Collect already used input segments
-        for match in alignment['matches']:
-            if match['input_idx'] is not None:
-                used_input_indices.add(match['input_idx'])
+                            # Ensure exact target length
+                            if len(segment_audio) > target_length:
+                                segment_audio = segment_audio[:target_length]
+                            elif len(segment_audio) < target_length:
+                                segment_audio = np.pad(segment_audio, (0, target_length - len(segment_audio)))
 
-        unused_input = [i for i in range(n_input) if i not in used_input_indices]
+                            # Place in output audio
+                            if target_end_sample <= len(output_audio) and target_start_sample >= 0:
+                                output_audio[target_start_sample:target_end_sample] = segment_audio
+                                logger.debug(
+                                    f"Placed segment {segment.get('segment_index', '?')} at {target_start:.2f}-{target_end:.2f}s")
+                            else:
+                                logger.warning(
+                                    f"Segment {segment.get('segment_index', '?')} timing out of bounds: {target_start:.2f}-{target_end:.2f}s")
+                    else:
+                        logger.warning(
+                            f"Original audio segment out of bounds: {orig_start:.2f}-{orig_end:.2f}s (audio length: {len(audio) / sr:.2f}s)")
 
-        if unused_input:
-            logger.info(f"Ensuring coverage for {len(unused_input)} unused input segments")
+            # Save output
+            sf.write(output_path, output_audio, sr)
+            logger.info(f"Created time-aligned audio: {output_path} ({len(output_audio) / sr:.2f}s)")
+            return output_path
 
-            # Add unused segments to the end of the alignment
-            for input_idx in unused_input:
-                input_seg = input_segments[input_idx]
-
-                # Create synthetic reference timing
-                last_end = 0
-                if alignment['matches']:
-                    # Find the last end time
-                    for match in alignment['matches']:
-                        ref_idx = match['reference_idx']
-                        if ref_idx < len(reference_segments):
-                            seg_end = reference_segments[ref_idx].get('end', 0)
-                            last_end = max(last_end, seg_end)
-                        elif 'synthetic_timing' in match:
-                            seg_end = match['synthetic_timing'].get('end', 0)
-                            last_end = max(last_end, seg_end)
-
-                duration = input_seg.get('end', 0) - input_seg.get('start', 0)
-                synthetic_timing = {
-                    'start': last_end,
-                    'end': last_end + duration,
-                    'text': input_seg.get('text', ''),
-                    'synthetic': True
-                }
-
-                # Add to matches
-                alignment['matches'].append({
-                    'reference_idx': len(alignment['matches']),
-                    'input_idx': input_idx,
-                    'similarity': 0.2,
-                    'is_matched': True,
-                    'match_type': 'coverage_extension',
-                    'synthetic_timing': synthetic_timing
-                })
-
-        # Update derived fields
-        alignment['input_order'] = [m['input_idx'] for m in alignment['matches']]
-        alignment['reference_coverage'] = [m['is_matched'] for m in alignment['matches']]
-        alignment['total_similarity'] = sum(m['similarity'] for m in alignment['matches'] if m['is_matched'])
-
-        return alignment
+        except Exception as e:
+            logger.error(f"Failed to create temporal audio: {e}")
+            raise
 
     def _generate_alignment_info(
             self,
@@ -895,123 +1016,27 @@ class TemporalAligner:
             'total_similarity': sum(m['similarity'] for m in matches if m['is_matched'])
         }
 
-    def _score_alignment(self, alignment: Dict, similarity_matrix: np.ndarray) -> float:
-        """
-        Score an alignment based on similarity and sequence coherence.
-        """
-        if not alignment['matches']:
+    def _clean_text(self, text: str) -> str:
+        """Clean and normalize text for comparison."""
+        if not text:
+            return ""
+        # Convert to lowercase, remove punctuation, normalize whitespace
+        text = re.sub(r'[^\w\s]', '', text.lower())
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text
+
+    def _calculate_text_similarity(self, text1: str, text2: str) -> float:
+        """Calculate simple text similarity for helper functions."""
+        if not text1 or not text2:
             return 0.0
 
-        # Base score: average similarity of matched segments
-        matched_similarities = [m['similarity'] for m in alignment['matches'] if m['is_matched']]
-        avg_similarity = sum(matched_similarities) / max(1, len(matched_similarities))
+        words1 = set(text1.lower().split())
+        words2 = set(text2.lower().split())
 
-        # Coverage score: how many reference segments are matched
-        coverage = sum(alignment['reference_coverage']) / len(alignment['reference_coverage'])
+        if not words1 or not words2:
+            return 0.0
 
-        # Input usage score: how many input segments are used
-        input_usage = len([m for m in alignment['matches'] if m['input_idx'] is not None]) / max(1,
-                                                                                                 similarity_matrix.shape[
-                                                                                                     1])
+        intersection = words1.intersection(words2)
+        union = words1.union(words2)
 
-        # Sequence coherence: bonus for maintaining input order
-        sequence_bonus = 0.0
-        input_indices = [m['input_idx'] for m in alignment['matches'] if m['input_idx'] is not None]
-        if len(input_indices) > 1:
-            ordered_count = 0
-            for i in range(len(input_indices) - 1):
-                if input_indices[i] < input_indices[i + 1]:
-                    ordered_count += 1
-            sequence_bonus = ordered_count / (len(input_indices) - 1) * 0.15
-
-        # Combined score prioritizing input usage to avoid silence gaps
-        return 0.3 * avg_similarity + 0.2 * coverage + 0.4 * input_usage + 0.1 * sequence_bonus
-
-    def _create_temporal_audio(
-            self,
-            input_audio_path: str,
-            aligned_segments: List[Dict],
-            output_path: str
-    ) -> str:
-        """
-        Create time-aligned audio file from aligned segments.
-        FIXED: Now handles synthetic timing and ensures all segments are included.
-        """
-        try:
-            # Load input audio
-            audio, sr = librosa.load(input_audio_path, sr=None)
-
-            # Calculate total duration from aligned segments (including synthetic ones)
-            if not aligned_segments:
-                return output_path
-
-            total_duration = max([seg['end'] for seg in aligned_segments])
-            output_length = int(total_duration * sr)
-            output_audio = np.zeros(output_length)
-
-            logger.info(f"Creating audio: {len(aligned_segments)} segments, {total_duration:.2f}s total duration")
-
-            # Process each aligned segment
-            for segment in aligned_segments:
-                if segment.get('text') == '[SILENCE]':
-                    continue  # Skip silence segments (leave as zeros)
-
-                # Target timing (from reference or synthetic)
-                target_start = segment['start']
-                target_end = segment['end']
-                target_start_sample = int(target_start * sr)
-                target_end_sample = int(target_end * sr)
-                target_length = target_end_sample - target_start_sample
-
-                # Original timing (from input)
-                if 'original_start' in segment and 'original_end' in segment:
-                    orig_start = segment['original_start']
-                    orig_end = segment['original_end']
-                    orig_start_sample = int(orig_start * sr)
-                    orig_end_sample = int(orig_end * sr)
-
-                    # Extract original audio segment
-                    if orig_end_sample <= len(audio) and orig_start_sample >= 0:
-                        segment_audio = audio[orig_start_sample:orig_end_sample]
-
-                        # Time-stretch to fit target duration
-                        if len(segment_audio) > 0 and target_length > 0:
-                            if len(segment_audio) != target_length:
-                                # Use librosa for time stretching
-                                stretch_ratio = len(segment_audio) / target_length
-                                try:
-                                    segment_audio = librosa.effects.time_stretch(segment_audio, rate=stretch_ratio)
-                                except Exception as e:
-                                    logger.warning(
-                                        f"Time stretching failed for segment {segment.get('segment_index', '?')}: {e}")
-                                    # Fallback: simple resampling
-                                    if target_length > 0:
-                                        segment_audio = librosa.resample(segment_audio, orig_sr=len(segment_audio),
-                                                                         target_sr=target_length)
-
-                            # Ensure exact target length
-                            if len(segment_audio) > target_length:
-                                segment_audio = segment_audio[:target_length]
-                            elif len(segment_audio) < target_length:
-                                segment_audio = np.pad(segment_audio, (0, target_length - len(segment_audio)))
-
-                            # Place in output audio
-                            if target_end_sample <= len(output_audio) and target_start_sample >= 0:
-                                output_audio[target_start_sample:target_end_sample] = segment_audio
-                                logger.debug(
-                                    f"Placed segment {segment.get('segment_index', '?')} at {target_start:.2f}-{target_end:.2f}s")
-                            else:
-                                logger.warning(
-                                    f"Segment {segment.get('segment_index', '?')} timing out of bounds: {target_start:.2f}-{target_end:.2f}s")
-                    else:
-                        logger.warning(
-                            f"Original audio segment out of bounds: {orig_start:.2f}-{orig_end:.2f}s (audio length: {len(audio) / sr:.2f}s)")
-
-            # Save output
-            sf.write(output_path, output_audio, sr)
-            logger.info(f"Created time-aligned audio: {output_path} ({len(output_audio) / sr:.2f}s)")
-            return output_path
-
-        except Exception as e:
-            logger.error(f"Failed to create temporal audio: {e}")
-            raise
+        return len(intersection) / len(union) if union else 0.0
