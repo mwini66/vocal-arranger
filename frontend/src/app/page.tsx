@@ -423,7 +423,7 @@ export default function Home() {
                 ✓ Segments Detected: {segments.length}
               </h3>
               <div className="text-xs text-gray-300">
-                Ready for arrangement!
+                Ready for temporal alignment!
               </div>
             </div>
           )}

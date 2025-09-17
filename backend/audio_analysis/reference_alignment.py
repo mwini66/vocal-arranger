@@ -55,11 +55,11 @@ class TemporalAligner:
             raise
 
     def align_to_reference_timing(
-        self,
-        input_segments: List[Dict],
-        reference_segments: List[Dict],
-        input_audio_path: str,
-        output_path: str
+            self,
+            input_segments: List[Dict],
+            reference_segments: List[Dict],
+            input_audio_path: str,
+            output_path: str
     ) -> Tuple[List[Dict], Dict, str]:
         """
         Main temporal alignment function.
@@ -138,24 +138,28 @@ class TemporalAligner:
                 'matches': matches,
                 'quality_score': quality_score,
                 'total_matches': len([m for m in matches if m['is_matched']]),
-                'avg_similarity': sum([m['similarity'] for m in matches if m['is_matched']]) / max(1, len([m for m in matches if m['is_matched']]))
+                'avg_similarity': sum([m['similarity'] for m in matches if m['is_matched']]) / max(1, len([m for m in
+                                                                                                           matches if m[
+                                                                                                               'is_matched']]))
             })
 
-            logger.info(f"Window size {window_size}: {quality_score:.3f} quality, {len([m for m in matches if m['is_matched']])} matches")
+            logger.info(
+                f"Window size {window_size}: {quality_score:.3f} quality, {len([m for m in matches if m['is_matched']])} matches")
 
         # Select best windowing result
         best_result = max(window_results, key=lambda x: x['quality_score'])
-        logger.info(f"Selected window size {best_result['window_size']} with quality score {best_result['quality_score']:.3f}")
+        logger.info(
+            f"Selected window size {best_result['window_size']} with quality score {best_result['quality_score']:.3f}")
 
         return best_result['matches']
 
     def _find_matches_with_window(
-        self,
-        input_segments: List[Dict],
-        reference_segments: List[Dict],
-        valid_input_indices: List[int],
-        valid_ref_indices: List[int],
-        window_size: int
+            self,
+            input_segments: List[Dict],
+            reference_segments: List[Dict],
+            valid_input_indices: List[int],
+            valid_ref_indices: List[int],
+            window_size: int
     ) -> List[Dict]:
         """
         Find matches using a specific window size for sequential matching.
@@ -183,8 +187,8 @@ class TemporalAligner:
                     similarity = similarities[input_idx]
 
                     if (input_seg_idx not in used_input_segments and
-                        similarity > self.similarity_threshold and
-                        similarity > best_similarity):
+                            similarity > self.similarity_threshold and
+                            similarity > best_similarity):
                         best_match = input_seg_idx
                         best_similarity = similarity
 
@@ -214,12 +218,12 @@ class TemporalAligner:
         return matches
 
     def _windowed_sequence_matching(
-        self,
-        input_segments: List[Dict],
-        reference_segments: List[Dict],
-        valid_input_indices: List[int],
-        valid_ref_indices: List[int],
-        window_size: int
+            self,
+            input_segments: List[Dict],
+            reference_segments: List[Dict],
+            valid_input_indices: List[int],
+            valid_ref_indices: List[int],
+            window_size: int
     ) -> List[Dict]:
         """
         Perform windowed sequence matching to find the best sequential alignments.
@@ -325,11 +329,11 @@ class TemporalAligner:
         return matches
 
     def _calculate_window_similarity(
-        self,
-        ref_window: Dict,
-        input_window: Dict,
-        input_segments: List[Dict],
-        reference_segments: List[Dict]
+            self,
+            ref_window: Dict,
+            input_window: Dict,
+            input_segments: List[Dict],
+            reference_segments: List[Dict]
     ) -> float:
         """
         Calculate similarity between two windows of segments.
@@ -498,11 +502,11 @@ class TemporalAligner:
             raise
 
     def _calculate_similarity_matrix(
-        self,
-        input_segments: List[Dict],
-        reference_segments: List[Dict],
-        valid_input_indices: List[int],
-        valid_ref_indices: List[int]
+            self,
+            input_segments: List[Dict],
+            reference_segments: List[Dict],
+            valid_input_indices: List[int],
+            valid_ref_indices: List[int]
     ) -> np.ndarray:
         """
         Calculate similarity matrix combining text and audio features.
@@ -548,11 +552,11 @@ class TemporalAligner:
         return similarity_matrix
 
     def _audio_similarity_matrix(
-        self,
-        input_segments: List[Dict],
-        reference_segments: List[Dict],
-        valid_input_indices: List[int],
-        valid_ref_indices: List[int]
+            self,
+            input_segments: List[Dict],
+            reference_segments: List[Dict],
+            valid_input_indices: List[int],
+            valid_ref_indices: List[int]
     ) -> np.ndarray:
         """Calculate audio feature similarity."""
         similarity_matrix = np.zeros((len(valid_ref_indices), len(valid_input_indices)))
@@ -604,59 +608,76 @@ class TemporalAligner:
         return alignment_plan
 
     def _create_temporal_audio(
-        self,
-        input_audio_path: str,
-        input_segments: List[Dict],
-        alignment_plan: List[Dict],
-        output_path: str
+            self,
+            input_audio_path: str,
+            input_segments: List[Dict],
+            alignment_plan: List[Dict],
+            output_path: str
     ) -> str:
         """
-        Create time-aligned audio based on alignment plan.
+        Create time-aligned audio based on alignment plan with enhanced audio quality.
+        Implements crossfading, better time-stretching, and audio smoothing techniques.
         """
         try:
-            # Load input audio
-            input_audio, sr = librosa.load(input_audio_path, sr=None)
+            # Load input audio with higher quality settings
+            input_audio, sr = librosa.load(input_audio_path, sr=None, mono=True)
 
             # Calculate total duration from reference
             total_duration = max([item['end_time'] for item in alignment_plan])
             output_length = int(total_duration * sr)
 
             # Initialize output audio with silence
-            output_audio = np.zeros(output_length)
+            output_audio = np.zeros(output_length, dtype=np.float32)
 
-            # Fill in matched segments
+            # Enhanced audio processing parameters
+            fade_duration = min(0.02, 0.1)  # 20ms crossfade, max 100ms
+            fade_samples = int(fade_duration * sr)
+
+            # Fill in matched segments with enhanced processing
             for plan_item in alignment_plan:
                 start_sample = int(plan_item['start_time'] * sr)
                 end_sample = int(plan_item['end_time'] * sr)
 
                 if not plan_item['is_silence'] and plan_item['input_segment_index'] is not None:
-                    # Get input segment audio
+                    # Get input segment audio with padding for smooth transitions
                     input_seg = input_segments[plan_item['input_segment_index']]
                     seg_start_sample = int(input_seg['start'] * sr)
                     seg_end_sample = int(input_seg['end'] * sr)
 
-                    segment_audio = input_audio[seg_start_sample:seg_end_sample]
+                    # Add small padding around segment for better quality
+                    padding_samples = int(0.01 * sr)  # 10ms padding
+                    padded_start = max(0, seg_start_sample - padding_samples)
+                    padded_end = min(len(input_audio), seg_end_sample + padding_samples)
 
-                    # Time-stretch if needed to match reference timing
+                    segment_audio = input_audio[padded_start:padded_end].copy()
+
+                    # Enhanced time-stretching if needed
                     target_length = end_sample - start_sample
                     if len(segment_audio) != target_length and target_length > 0:
-                        stretch_ratio = len(segment_audio) / target_length
-                        segment_audio = librosa.effects.time_stretch(segment_audio, rate=stretch_ratio)
+                        segment_audio = self._high_quality_time_stretch(
+                            segment_audio, target_length, sr
+                        )
 
-                        # Ensure exact length
-                        if len(segment_audio) > target_length:
-                            segment_audio = segment_audio[:target_length]
-                        elif len(segment_audio) < target_length:
-                            segment_audio = np.pad(segment_audio, (0, target_length - len(segment_audio)))
+                    # Apply fade-in and fade-out to prevent clicks
+                    segment_audio = self._apply_crossfades(segment_audio, fade_samples)
 
-                    # Place in output
-                    output_audio[start_sample:end_sample] = segment_audio
+                    # Ensure exact length after processing
+                    if len(segment_audio) > target_length:
+                        segment_audio = segment_audio[:target_length]
+                    elif len(segment_audio) < target_length:
+                        segment_audio = np.pad(segment_audio, (0, target_length - len(segment_audio)))
 
-                # For unmatched segments, leave as silence (already initialized)
+                    # Advanced placement with overlap handling
+                    self._place_segment_with_crossfade(
+                        output_audio, segment_audio, start_sample, end_sample, fade_samples
+                    )
 
-            # Save output audio
-            sf.write(output_path, output_audio, sr)
-            logger.info(f"Created temporal audio: {output_path}")
+            # Post-process the entire output for smoothness
+            output_audio = self._post_process_audio(output_audio, sr)
+
+            # Save output audio with high quality settings
+            sf.write(output_path, output_audio, sr, subtype='PCM_16')
+            logger.info(f"Created high-quality temporal audio: {output_path}")
 
             return output_path
 
@@ -664,100 +685,177 @@ class TemporalAligner:
             logger.error(f"Failed to create temporal audio: {e}")
             raise
 
-    def _create_aligned_segments(self, alignment_plan: List[Dict], input_segments: List[Dict]) -> List[Dict]:
+    def _high_quality_time_stretch(self, audio: np.ndarray, target_length: int, sr: int) -> np.ndarray:
         """
-        Create segment metadata for aligned output.
+        High-quality time stretching using phase vocoder with overlap-add.
         """
-        aligned_segments = []
+        try:
+            if len(audio) == target_length:
+                return audio
 
-        for plan_item in alignment_plan:
-            if plan_item['is_silence']:
-                # Create silence segment
-                aligned_segment = {
-                    'start': plan_item['start_time'],
-                    'end': plan_item['end_time'],
-                    'text': '[SILENCE]',
-                    'segment_index': len(aligned_segments),
-                    'energy': 0.0,
-                    'pitch': 0.0,
-                    'duration': plan_item['duration'],
-                    'pause': 0.0,
-                    'energy_category': 'silence',
-                    'pitch_category': 'silence',
-                    'duration_category': 'medium',
-                    'text_density': 'none',
-                    'is_repetitive': False,
-                    'has_vocal_runs': False,
-                    'is_sustained': False,
-                    'likely_intro': False,
-                    'likely_outro': False,
-                    'likely_hook': False,
-                    'keywords': [],
-                    'word_count': 0,
-                    'unique_word_ratio': 0.0,
-                    # Add matching information for silence segments
-                    'alignment_similarity': 0.0,
-                    'original_segment_index': None,
-                    'matched_input_text': None,
-                    'reference_text': plan_item.get('reference_text', 'N/A')  # Get reference text even for silence
-                }
+            # Calculate stretch ratio
+            stretch_ratio = len(audio) / target_length
+
+            # Use librosa's phase vocoder for high-quality time stretching
+            # This maintains phase coherence and reduces artifacts
+            stretched_audio = librosa.effects.time_stretch(
+                audio,
+                rate=stretch_ratio,
+                hop_length=512,  # Smaller hop for better quality
+                n_fft=2048  # Larger FFT for better frequency resolution
+            )
+
+            # Apply gentle low-pass filter to reduce high-frequency artifacts
+            # Only if significant stretching occurred
+            if abs(stretch_ratio - 1.0) > 0.2:  # If stretch > 20%
+                from scipy import signal
+                # Design anti-aliasing filter
+                nyquist = sr / 2
+                cutoff = min(8000, nyquist * 0.8)  # Gentle cutoff at 8kHz or 80% Nyquist
+                b, a = signal.butter(4, cutoff / nyquist, btype='low')
+                stretched_audio = signal.filtfilt(b, a, stretched_audio)
+
+            return stretched_audio.astype(np.float32)
+
+        except Exception as e:
+            logger.warning(f"Advanced time stretch failed, using basic method: {e}")
+            # Fallback to simple resampling if phase vocoder fails
+            from scipy import signal
+            return signal.resample(audio, target_length).astype(np.float32)
+
+    def _apply_crossfades(self, audio: np.ndarray, fade_samples: int) -> np.ndarray:
+        """
+        Apply smooth fade-in and fade-out to audio segment.
+        """
+        if len(audio) <= fade_samples * 2:
+            # For very short segments, apply gentle envelope
+            envelope_length = len(audio) // 4
+            if envelope_length > 0:
+                fade_in = np.linspace(0, 1, envelope_length)
+                fade_out = np.linspace(1, 0, envelope_length)
+                audio[:envelope_length] *= fade_in
+                audio[-envelope_length:] *= fade_out
+        else:
+            # Apply cosine-shaped fades for smooth transitions
+            fade_in = 0.5 * (1 - np.cos(np.linspace(0, np.pi, fade_samples)))
+            fade_out = 0.5 * (1 - np.cos(np.linspace(np.pi, 2 * np.pi, fade_samples)))
+
+            audio[:fade_samples] *= fade_in
+            audio[-fade_samples:] *= fade_out
+
+        return audio
+
+    def _place_segment_with_crossfade(
+            self,
+            output_audio: np.ndarray,
+            segment_audio: np.ndarray,
+            start_sample: int,
+            end_sample: int,
+            fade_samples: int
+    ):
+        """
+        Place segment in output with intelligent crossfading to avoid clicks.
+        """
+        segment_length = len(segment_audio)
+        target_length = end_sample - start_sample
+
+        # Ensure we don't exceed output bounds
+        actual_end = min(start_sample + segment_length, len(output_audio), end_sample)
+        actual_length = actual_end - start_sample
+
+        if actual_length <= 0:
+            return
+
+        # Trim segment if necessary
+        if segment_length > actual_length:
+            segment_audio = segment_audio[:actual_length]
+
+        # Check for overlap with existing audio
+        existing_audio = output_audio[start_sample:actual_end]
+        has_existing_content = np.any(np.abs(existing_audio) > 1e-6)
+
+        if has_existing_content and fade_samples > 0:
+            # Intelligent mixing of overlapping content
+            overlap_start = max(0, fade_samples)
+            overlap_end = min(len(segment_audio), len(existing_audio))
+
+            if overlap_end > overlap_start:
+                # Create smooth transition between existing and new audio
+                mix_length = overlap_end - overlap_start
+                mix_fade = np.linspace(1, 0, mix_length)  # Fade out existing
+                new_fade = np.linspace(0, 1, mix_length)  # Fade in new
+
+                mixed_section = (existing_audio[overlap_start:overlap_end] * mix_fade +
+                                 segment_audio[overlap_start:overlap_end] * new_fade)
+
+                # Place the mixed section
+                output_audio[start_sample + overlap_start:start_sample + overlap_end] = mixed_section
+
+                # Place non-overlapping parts
+                if overlap_start > 0:
+                    output_audio[start_sample:start_sample + overlap_start] = segment_audio[:overlap_start]
+                if overlap_end < len(segment_audio):
+                    output_audio[start_sample + overlap_end:actual_end] = segment_audio[overlap_end:actual_length]
             else:
-                # Copy and adjust input segment
-                input_seg = input_segments[plan_item['input_segment_index']]
-                aligned_segment = input_seg.copy()
+                output_audio[start_sample:actual_end] = segment_audio[:actual_length]
+        else:
+            # No overlap, direct placement
+            output_audio[start_sample:actual_end] = segment_audio[:actual_length]
 
-                # Update timing to match reference
-                aligned_segment['start'] = plan_item['start_time']
-                aligned_segment['end'] = plan_item['end_time']
-                aligned_segment['segment_index'] = len(aligned_segments)
-
-                # Add alignment metadata with both texts
-                aligned_segment['alignment_similarity'] = plan_item['similarity']
-                aligned_segment['original_segment_index'] = plan_item['input_segment_index']
-                aligned_segment['matched_input_text'] = input_seg.get('text', '')
-                aligned_segment['reference_text'] = plan_item.get('reference_text', 'N/A')  # Ensure reference text is set
-
-            aligned_segments.append(aligned_segment)
-
-        return aligned_segments
-
-    def _generate_alignment_info(
-        self,
-        input_segments: List[Dict],
-        reference_segments: List[Dict],
-        matches: List[Dict],
-        alignment_plan: List[Dict]
-    ) -> Dict:
+    def _post_process_audio(self, audio: np.ndarray, sr: int) -> np.ndarray:
         """
-        Generate alignment statistics and information.
+        Apply final post-processing to improve overall audio quality.
         """
-        matched_segments = len([m for m in matches if m['is_matched']])
-        total_reference_segments = len(reference_segments)
-        total_input_segments = len(input_segments)
+        try:
+            # 1. Gentle normalization to prevent clipping
+            max_amplitude = np.max(np.abs(audio))
+            if max_amplitude > 0.95:  # If close to clipping
+                audio = audio * (0.9 / max_amplitude)  # Normalize to -0.9dB peak
 
-        similarities = [m['similarity'] for m in matches if m['is_matched']]
-        avg_similarity = sum(similarities) / len(similarities) if similarities else 0
+            # 2. Apply gentle high-pass filter to remove DC offset and low-end rumble
+            from scipy import signal
+            # High-pass at 80Hz to remove DC and very low frequencies
+            nyquist = sr / 2
+            high_cutoff = 80.0 / nyquist
+            if high_cutoff < 0.5:  # Ensure valid frequency
+                b, a = signal.butter(2, high_cutoff, btype='high')
+                audio = signal.filtfilt(b, a, audio)
 
-        # Calculate timing statistics
-        total_duration = max([item['end_time'] for item in alignment_plan])
-        silence_duration = sum([
-            item['duration'] for item in alignment_plan if item['is_silence']
-        ])
+            # 3. Apply very gentle compression to even out levels
+            audio = self._gentle_compression(audio)
 
-        return {
-            'total_reference_segments': total_reference_segments,
-            'total_input_segments': total_input_segments,
-            'matched_segments': matched_segments,
-            'unmatched_segments': total_reference_segments - matched_segments,
-            'match_rate': matched_segments / total_reference_segments if total_reference_segments > 0 else 0,
-            'average_similarity': avg_similarity,
-            'used_input_segments': matched_segments,
-            'unused_input_segments': total_input_segments - matched_segments,
-            'usage_rate': matched_segments / total_input_segments if total_input_segments > 0 else 0,
-            'total_duration': total_duration,
-            'silence_duration': silence_duration,
-            'content_duration': total_duration - silence_duration,
-            'silence_percentage': (silence_duration / total_duration * 100) if total_duration > 0 else 0,
-            'alignment_method': 'temporal_alignment',
-            'similarity_threshold': self.similarity_threshold
-        }
+            # 4. Final gentle limiter to prevent any remaining artifacts
+            audio = np.clip(audio, -0.98, 0.98)
+
+            return audio.astype(np.float32)
+
+        except Exception as e:
+            logger.warning(f"Post-processing failed, returning original: {e}")
+            return audio
+
+    def _gentle_compression(self, audio: np.ndarray, threshold: float = 0.7, ratio: float = 2.0) -> np.ndarray:
+        """
+        Apply gentle compression to smooth out level differences.
+        """
+        try:
+            # Simple soft-knee compression
+            abs_audio = np.abs(audio)
+            gain = np.ones_like(abs_audio)
+
+            # Find samples above threshold
+            above_threshold = abs_audio > threshold
+            if np.any(above_threshold):
+                # Calculate compression gain
+                excess = abs_audio[above_threshold] - threshold
+                compressed_excess = excess / ratio
+                gain[above_threshold] = (threshold + compressed_excess) / abs_audio[above_threshold]
+
+            # Apply gain smoothing to avoid artifacts
+            from scipy import ndimage
+            gain_smooth = ndimage.gaussian_filter1d(gain, sigma=1.0)
+
+            return audio * gain_smooth
+
+        except Exception as e:
+            logger.warning(f"Compression failed: {e}")
+            return audio
