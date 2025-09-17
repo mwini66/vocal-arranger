@@ -252,6 +252,7 @@ class ReferenceAligner:
                            output_path: str) -> str:
         """
         Create new audio file with user vocals arranged according to reference timing.
+        Uses segment placement instead of time stretching to preserve audio quality.
 
         Args:
             user_audio_path: Path to user's audio file
@@ -280,40 +281,57 @@ class ReferenceAligner:
                     # Skip missing segments (they become silence)
                     continue
 
-                # Calculate sample indices for user audio
+                # Calculate sample indices for user audio (original timing)
                 user_start_sample = int(segment['original_start'] * sr)
                 user_end_sample = int(segment['original_end'] * sr)
 
-                # Calculate sample indices for output audio
+                # Calculate sample indices for output audio (reference timing)
                 output_start_sample = int(segment['start'] * sr)
-                output_end_sample = int(segment['end'] * sr)
 
-                # Extract user audio segment
+                # Extract user audio segment at original length (no stretching)
                 user_segment = y_user[user_start_sample:user_end_sample]
 
-                # Calculate lengths
-                user_length = len(user_segment)
-                output_length = output_end_sample - output_start_sample
-
-                if user_length == 0:
+                if len(user_segment) == 0:
                     continue
 
-                # Resize user segment to match reference timing
-                if user_length != output_length:
-                    # Use librosa to time-stretch the segment
-                    stretch_factor = output_length / user_length
-                    user_segment = librosa.effects.time_stretch(user_segment, rate=1/stretch_factor)
-                    user_segment = user_segment[:output_length]  # Trim if necessary
+                # Calculate how much space we have in the reference timing
+                reference_duration = segment['end'] - segment['start']
+                reference_samples = int(reference_duration * sr)
+                user_samples = len(user_segment)
 
-                # Place segment in output array
-                end_idx = min(output_start_sample + len(user_segment), total_samples)
-                y_output[output_start_sample:end_idx] = user_segment[:end_idx - output_start_sample]
+                if user_samples <= reference_samples:
+                    # User segment fits in reference slot - place it at the start
+                    end_idx = min(output_start_sample + user_samples, total_samples)
+                    y_output[output_start_sample:end_idx] = user_segment[:end_idx - output_start_sample]
+                else:
+                    # User segment is longer than reference slot - trim it
+                    # Option 1: Take the first part
+                    trimmed_segment = user_segment[:reference_samples]
+                    end_idx = min(output_start_sample + len(trimmed_segment), total_samples)
+                    y_output[output_start_sample:end_idx] = trimmed_segment[:end_idx - output_start_sample]
+
+                    # Option 2: Take the middle part (preserves more vocal content)
+                    # start_trim = (user_samples - reference_samples) // 2
+                    # trimmed_segment = user_segment[start_trim:start_trim + reference_samples]
+                    # end_idx = min(output_start_sample + len(trimmed_segment), total_samples)
+                    # y_output[output_start_sample:end_idx] = trimmed_segment[:end_idx - output_start_sample]
+
+            # Apply gentle fade in/out to reduce clicks
+            fade_samples = min(int(0.01 * sr), len(y_output) // 20)  # 10ms fade or 5% of audio
+            if fade_samples > 0:
+                # Fade in
+                fade_in = np.linspace(0, 1, fade_samples)
+                y_output[:fade_samples] *= fade_in
+
+                # Fade out
+                fade_out = np.linspace(1, 0, fade_samples)
+                y_output[-fade_samples:] *= fade_out
 
             # Save aligned audio
             import soundfile as sf
             sf.write(output_path, y_output, sr)
 
-            logger.info(f"Created aligned audio: {output_path}")
+            logger.info(f"Created aligned audio without time stretching: {output_path}")
             return output_path
 
         except Exception as e:
