@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Environment variables and config
+.env
+.env.*
+
+# Flask
+instance/
+*.db
+
+# Test and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Output and uploads
+uploads/
+output/
+*.wav
+*.mp3
+*.json
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Data
+backend/data/
+data/
+
